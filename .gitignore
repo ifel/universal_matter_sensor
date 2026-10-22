@@ -1,5 +1,8 @@
 /build/
+/build_*/
 /cmake-build-debug-esp-idf/
 /managed_components/
+/out/
+/.vscode/
 sdkconfig
 sdkconfig.old

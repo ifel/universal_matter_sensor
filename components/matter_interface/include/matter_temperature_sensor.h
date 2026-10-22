@@ -1,21 +1,26 @@
 #ifndef MATTER_TEMPERATURE_SENSOR_H
 #define MATTER_TEMPERATURE_SENSOR_H
 
+#include <esp_err.h>
+#include <esp_matter.h>
+
 /**
  * @brief Create a Matter temperature sensor endpoint.
  *
  * This function sets up a new Matter temperature sensor endpoint with the specified properties.
  *
- * @param[out] matter_node        Pointer to the Node handle.
- * @param[out] endpoint_id        Pointer to store the assigned endpoint ID.
- * @param[in] min_temperature     Minimum allowable temperature in Celsius.
- * @param[in] max_temperature     Maximum allowable temperature in Celsius.
- * @param[in] initial_temperature Initial temperature value in Celsius.
+ * @param[in]  matter_node                Pointer to the Node handle.
+ * @param[out] endpoint_id                Pointer to store the assigned endpoint ID.
+ * @param[in]  scaled_min_temperature     Minimum allowable temperature (scaled in 0.01 °C).
+ * @param[in]  scaled_max_temperature     Maximum allowable temperature (scaled in 0.01 °C).
+ * @param[in]  scaled_initial_temperature Initial temperature value (scaled in 0.01 °C).
  * @return
  *      - ESP_OK on success.
- *      - ESP_ERR_INVALID_ARG if arguments are invalid.
- *      - Other error codes on failure.
+ *      - ESP_FAIL on failure.
  */
-esp_err_t create_temperature_sensor_endpoint(esp_matter::node_t *matter_node, uint16_t *endpoint_id, float min_temperature, float max_temperature, float initial_temperature);
+esp_err_t create_temperature_sensor_endpoint(esp_matter::node_t *matter_node, uint16_t *endpoint_id,
+                                             nullable<int16_t> scaled_min_temperature,
+                                             nullable<int16_t> scaled_max_temperature,
+                                             nullable<int16_t> scaled_initial_temperature);
 
 #endif // MATTER_TEMPERATURE_SENSOR_H

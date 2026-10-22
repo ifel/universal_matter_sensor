@@ -3,10 +3,27 @@
 #include <esp_matter.h>
 
 #include "matter_manager.h"
-#include "matter_temperature_sensor.h"
 #include "matter_pressure_sensor.h"
+#include "matter_relative_humidity_sensor.h"
+#include "matter_temperature_sensor.h"
+
+#define MATTER_TEMP_SCALE 100.0
+#define MATTER_RELATIVE_HUMIDITY_SCALE 100.0
+#define MATTER_PRESSURE_SCALE 10.0
 
 static auto TAG = "   ***matter_interface***   ";
+
+static inline int16_t matter_scale_temp(float value) {
+    return static_cast<int16_t>(value * MATTER_TEMP_SCALE);
+}
+
+static inline int16_t matter_scale_pressure_to_kpa(float value_pa) {
+    return static_cast<int16_t>(value_pa / 1000 * MATTER_PRESSURE_SCALE);
+}
+
+static inline uint16_t matter_scale_relative_humidity(float value) {
+    return static_cast<uint16_t>(value * MATTER_RELATIVE_HUMIDITY_SCALE);
+}
 
 void matter_event_callback(const ChipDeviceEvent *event, intptr_t arg) {
     switch (event->Type) {
@@ -178,61 +195,67 @@ void matter_event_callback(const ChipDeviceEvent *event, intptr_t arg) {
 
 esp_err_t identification_callback(esp_matter::identification::callback_type_t const type, uint16_t const endpoint_id,
                                   uint8_t const effect_id, uint8_t const effect_variant, void *priv_data) {
-    ESP_LOGI(TAG, "Identification Callback Invoked: type=%d, endpoint_id=%u, effect_id=%u, effect_variant=%u",
-             type, (unsigned int)endpoint_id, (unsigned int)effect_id, (unsigned int)effect_variant);
+    ESP_LOGI(TAG, "Identification Callback Invoked: type=%d, endpoint_id=%u, effect_id=%u, effect_variant=%u", type,
+             (unsigned int)endpoint_id, (unsigned int)effect_id, (unsigned int)effect_variant);
     return ESP_OK;
 }
 
 esp_err_t attribute_update_callback(const esp_matter::attribute::callback_type_t type, const uint16_t endpoint_id,
                                     const uint32_t cluster_id, const uint32_t attribute_id, esp_matter_attr_val_t *val,
                                     void *priv_data) {
-    ESP_LOGI(TAG, "Attribute update: type=%d, endpoint_id=%u, cluster_id=%u, attribute_id=%u",
-             type, (unsigned int)endpoint_id, (unsigned int)cluster_id, (unsigned int)attribute_id);
+    ESP_LOGI(TAG, "Attribute update: type=%d, endpoint_id=%u, cluster_id=%u, attribute_id=%u", type,
+             (unsigned int)endpoint_id, (unsigned int)cluster_id, (unsigned int)attribute_id);
     return ESP_OK;
 }
 
 esp_err_t matter_init(uint16_t *temperature_sensor_endpoint_id, uint16_t *pressure_sensor_endpoint_id,
-                      const float min_temperature, const float max_temperature, const float initial_temperature,
-                      const float min_pressure, const float max_pressure, const float initial_pressure) {
+                      uint16_t *relative_humidity_sensor_endpoint_id, const float min_temperature,
+                      const float max_temperature, const float initial_temperature, const float min_pressure,
+                      const float max_pressure, const float initial_pressure, const float min_relative_humidity,
+                      const float max_relative_humidity, const float initial_relative_humidity) {
     // Initialize Matter Node, where
     // - node_config is the configuration object for the nodeset_callback
     // - app_attribute_update_cb is the callback for handling attribute updates for the temperature sensor
     // - app_identification_cb is the callback for handling identification queries
     esp_matter::node::config_t node_config;
-    esp_matter::node_t *matter_node = esp_matter::node::create(&node_config, attribute_update_callback,
-                                                               identification_callback);
+    esp_matter::node_t *matter_node =
+        esp_matter::node::create(&node_config, attribute_update_callback, identification_callback);
     if (matter_node == nullptr) {
         ESP_LOGE(TAG, "Failed to create Matter node.");
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Matter node created");
 
-
     // Initialize Matter temperature sensor endpoint
-    const auto scaled_min_temperature = static_cast<int16_t>(min_temperature * 100);
-    const auto scaled_max_temperature = static_cast<int16_t>(max_temperature * 100);
-    const auto scaled_initial_temperature = static_cast<int16_t>(initial_temperature * 100);
-
     if (create_temperature_sensor_endpoint(matter_node, temperature_sensor_endpoint_id,
-                                           scaled_min_temperature, scaled_max_temperature, scaled_initial_temperature) != ESP_OK) {
+                                           matter_scale_temp(min_temperature), matter_scale_temp(max_temperature),
+                                           matter_scale_temp(initial_temperature)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize temperature sensor.");
         return ESP_FAIL;
-                                           }
+    }
     ESP_LOGI(TAG, "Temperature sensor endpoint initialized");
 
-
     // Initialize Matter pressure sensor endpoint
-    // Scale raw pressures (in hPa) to int16_t-compatible values (in hundredths of kPa)
-    constexpr float scaling_factor = 10.0f; // Converts hPa to kPa and scales to hundredths
-    const auto scaled_min_pressure = static_cast<int16_t>(min_pressure * scaling_factor);
-    const auto scaled_max_pressure = static_cast<int16_t>(max_pressure * scaling_factor);
-    const auto scaled_initial_pressure = static_cast<int16_t>(initial_pressure * scaling_factor);
     // Pass scaled values to the endpoint creation function
-    if (create_pressure_sensor_endpoint(matter_node, pressure_sensor_endpoint_id, scaled_min_pressure, scaled_max_pressure, scaled_initial_pressure) != ESP_OK) {
+    if (create_pressure_sensor_endpoint(
+            matter_node, pressure_sensor_endpoint_id, matter_scale_pressure_to_kpa(min_pressure),
+            matter_scale_pressure_to_kpa(max_pressure), matter_scale_pressure_to_kpa(initial_pressure)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize pressure sensor");
         return ESP_FAIL;
     }
 
+    // Initialize Matter relative humidity sensor endpoint (optional, only when sensor supports humidity)
+    if (relative_humidity_sensor_endpoint_id != nullptr) {
+        if (create_relative_humidity_sensor_endpoint(matter_node, relative_humidity_sensor_endpoint_id,
+                                                     matter_scale_relative_humidity(min_relative_humidity),
+                                                     matter_scale_relative_humidity(max_relative_humidity),
+                                                     matter_scale_relative_humidity(initial_relative_humidity)) !=
+            ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize relative humidity sensor.");
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Relative humidity sensor endpoint initialized");
+    }
 
     // Start the Matter thread, using an optional event callback with private data.
     // It returns `ESP_OK` if successful or an error if it fails.
@@ -242,23 +265,6 @@ esp_err_t matter_init(uint16_t *temperature_sensor_endpoint_id, uint16_t *pressu
         return matter_err;
     }
     ESP_LOGI(TAG, "Matter started");
-
-    // The Matter Over-The-Air is a process that allows a Matter device in a Matter fabric to update its firmware.
-    // OTA Requestor is any Matter device that is going to have its firmware updated.
-    // https://docs.nordicsemi.com/bundle/ncs-latest/page/nrf/protocols/matter/overview/dfu.html
-    // The esp-matter SDK supports using a pre-encrypted application image for OTA upgrades.
-#if CONFIG_ENABLE_ENCRYPTED_OTA
-    extern const char decryption_key_start[] asm("_binary_esp_image_encryption_key_pem_start");
-    extern const char decryption_key_end[] asm("_binary_esp_image_encryption_key_pem_end");
-
-    static const char *s_decryption_key = decryption_key_start;
-    static const uint16_t s_decryption_key_len = decryption_key_end - decryption_key_start;
-
-    esp_err_t err = esp_matter_ota_requestor_encrypted_init(s_decryption_key, s_decryption_key_len);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize encrypted OTA, err: %d", err);
-    }
-#endif // CONFIG_ENABLE_ENCRYPTED_OTA
 
     // Console shell is helpful when developing/debugging the application.
     // Set CONFIG_ENABLE_CHIP_SHELL=n in sdkconfig.defaults in production.
@@ -276,29 +282,40 @@ esp_err_t matter_init(uint16_t *temperature_sensor_endpoint_id, uint16_t *pressu
 }
 
 esp_err_t matter_update_values(const uint16_t temperature_endpoint_id, const uint16_t pressure_sensor_endpoint_id,
-                               const int16_t new_temperature, const int16_t new_pressure) {
+                               const uint16_t *relative_humidity_endpoint_id, const float new_temperature,
+                               const float new_pressure, const float new_relative_humidity) {
     // Update temperature
-    esp_matter_attr_val_t new_temperature_int = esp_matter_nullable_int16(new_temperature);
+    esp_matter_attr_val_t new_temperature_int = esp_matter_nullable_int16(matter_scale_temp(new_temperature));
     const esp_err_t temperature_ret = esp_matter::attribute::update(
-        temperature_endpoint_id,
-        chip::app::Clusters::TemperatureMeasurement::Id,
-        chip::app::Clusters::TemperatureMeasurement::Attributes::MeasuredValue::Id,
-        &new_temperature_int);
+        temperature_endpoint_id, chip::app::Clusters::TemperatureMeasurement::Id,
+        chip::app::Clusters::TemperatureMeasurement::Attributes::MeasuredValue::Id, &new_temperature_int);
     if (temperature_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to update temperature sensor endpoint with new temperature value");
         return temperature_ret;
     }
 
     // Update pressure
-    esp_matter_attr_val_t new_pressure_int = esp_matter_nullable_int16(new_pressure);
+    esp_matter_attr_val_t new_pressure_int = esp_matter_nullable_int16(matter_scale_pressure_to_kpa(new_pressure));
     const esp_err_t pressure_ret = esp_matter::attribute::update(
-        pressure_sensor_endpoint_id,
-        chip::app::Clusters::PressureMeasurement::Id,
-        chip::app::Clusters::PressureMeasurement::Attributes::MeasuredValue::Id,
-        &new_pressure_int);
+        pressure_sensor_endpoint_id, chip::app::Clusters::PressureMeasurement::Id,
+        chip::app::Clusters::PressureMeasurement::Attributes::MeasuredValue::Id, &new_pressure_int);
     if (pressure_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to update pressure sensor endpoint with new pressure value");
         return pressure_ret;
+    }
+
+    // Update relative humidity if endpoint is enabled
+    if (relative_humidity_endpoint_id != nullptr) {
+        esp_matter_attr_val_t new_relative_humidity_int =
+            esp_matter_nullable_uint16(matter_scale_relative_humidity(new_relative_humidity));
+        const esp_err_t relative_humidity_ret = esp_matter::attribute::update(
+            *relative_humidity_endpoint_id, chip::app::Clusters::RelativeHumidityMeasurement::Id,
+            chip::app::Clusters::RelativeHumidityMeasurement::Attributes::MeasuredValue::Id,
+            &new_relative_humidity_int);
+        if (relative_humidity_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to update relative humidity sensor endpoint with new relative humidity value");
+            return relative_humidity_ret;
+        }
     }
 
     return ESP_OK;

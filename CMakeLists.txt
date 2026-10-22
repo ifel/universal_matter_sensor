@@ -26,12 +26,6 @@ set(EXTRA_COMPONENT_DIRS
 # Creates the project named matter_sensor
 project(matter_sensor)
 
-# WARNING: This is just an example for using key for decrypting the encrypted OTA image
-# Please do not use it as is.
-if(CONFIG_ENABLE_ENCRYPTED_OTA)
-    target_add_binary_data(matter-sensor.elf "esp_image_encryption_key.pem" TEXT)
-endif()
-
 # Set the C++ standard to C++17
 idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++17;-Os;-DCHIP_HAVE_CONFIG_H;-Wno-overloaded-virtual" APPEND)
 idf_build_set_property(C_COMPILE_OPTIONS "-Os" APPEND)

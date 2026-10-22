@@ -5,8 +5,9 @@
 
 static auto TAG = "   ***matter_interface***   ";
 
-esp_err_t create_pressure_sensor_endpoint(esp_matter::node_t *matter_node, uint16_t *endpoint_id, const int16_t min_pressure,
-                                         const int16_t max_pressure, const int16_t initial_pressure) {
+esp_err_t create_pressure_sensor_endpoint(esp_matter::node_t *matter_node, uint16_t *endpoint_id,
+                                          const int16_t min_pressure, const int16_t max_pressure,
+                                          const int16_t initial_pressure) {
 
     // Validate that inputs are within the int16_t range
     if (min_pressure > max_pressure) {
@@ -20,9 +21,12 @@ esp_err_t create_pressure_sensor_endpoint(esp_matter::node_t *matter_node, uint1
 
     // Set up the pressure sensor endpoint
     esp_matter::endpoint::pressure_sensor::config_t pressure_sensor_endpoint_config;
-    pressure_sensor_endpoint_config.pressure_measurement.pressure_min_measured_value = static_cast<nullable<int16_t>>(min_pressure);
-    pressure_sensor_endpoint_config.pressure_measurement.pressure_max_measured_value = static_cast<nullable<int16_t>>(max_pressure);
-    pressure_sensor_endpoint_config.pressure_measurement.pressure_measured_value = static_cast<nullable<int16_t>>(initial_pressure);
+    pressure_sensor_endpoint_config.pressure_measurement.min_measured_value =
+        static_cast<nullable<int16_t>>(min_pressure);
+    pressure_sensor_endpoint_config.pressure_measurement.max_measured_value =
+        static_cast<nullable<int16_t>>(max_pressure);
+    pressure_sensor_endpoint_config.pressure_measurement.measured_value =
+        static_cast<nullable<int16_t>>(initial_pressure);
 
     esp_matter::endpoint_t *pressure_sensor_endpoint = esp_matter::endpoint::pressure_sensor::create(
         matter_node, &pressure_sensor_endpoint_config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
@@ -33,6 +37,9 @@ esp_err_t create_pressure_sensor_endpoint(esp_matter::node_t *matter_node, uint1
 
     *endpoint_id = esp_matter::endpoint::get_id(pressure_sensor_endpoint);
     ESP_LOGI(TAG, "Pressure sensor endpoint created with id %d", *endpoint_id);
+
+    esp_matter::cluster::binding::config_t config;
+    esp_matter::cluster::binding::create(pressure_sensor_endpoint, &config, esp_matter::CLUSTER_FLAG_SERVER);
 
     return ESP_OK;
 }
