@@ -61,6 +61,7 @@ Connect the **Adafruit BME280** module to the **Seeed Studio XIAO ESP32C6** usin
 | **SDO** | Unconnected | — | Pulled high on Adafruit module → default I2C address **`0x77`**. Connect to `GND` for `0x76`. |
 
 > **Auto-Detection**: At boot, the firmware checks the sensor's chip ID (`0x60` for BME280, `0x58` for BMP280). If a **BMP280** is detected, the Matter Relative Humidity endpoint is automatically omitted and only Temperature and Pressure are exposed.
+> **Onboard Status LED**: The onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
 
 ---
 

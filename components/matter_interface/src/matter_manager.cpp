@@ -1,6 +1,8 @@
+#include <driver/gpio.h>
 #include <esp_log.h>
-#include <esp_matter_console.h>
 #include <esp_matter.h>
+#include <esp_matter_console.h>
+#include <esp_timer.h>
 
 #include "matter_manager.h"
 #include "matter_pressure_sensor.h"
@@ -11,7 +13,68 @@
 #define MATTER_RELATIVE_HUMIDITY_SCALE 100.0
 #define MATTER_PRESSURE_SCALE 10.0
 
+#define LED_BLINK_COMMISSIONING_US (1000 * 1000)
+#define LED_BLINK_IDENTIFY_US (200 * 1000)
+
 static auto TAG = "   ***matter_interface***   ";
+
+#if CONFIG_STATUS_LED_GPIO >= 0
+static constexpr gpio_num_t kStatusLedGpio = static_cast<gpio_num_t>(CONFIG_STATUS_LED_GPIO);
+#ifdef CONFIG_STATUS_LED_ACTIVE_LOW
+static constexpr uint32_t kLedOnLevel = 0;
+static constexpr uint32_t kLedOffLevel = 1;
+#else
+static constexpr uint32_t kLedOnLevel = 1;
+static constexpr uint32_t kLedOffLevel = 0;
+#endif
+
+static esp_timer_handle_t s_led_timer = nullptr;
+static bool s_led_on = false;
+static bool s_commissioning_window_open = false;
+static bool s_identifying = false;
+
+static void status_led_set(bool on) {
+    s_led_on = on;
+    gpio_set_level(kStatusLedGpio, on ? kLedOnLevel : kLedOffLevel);
+}
+
+static void status_led_timer_cb(void *arg) {
+    status_led_set(!s_led_on);
+}
+
+static void status_led_update_state() {
+    if (s_led_timer == nullptr) {
+        return;
+    }
+    esp_timer_stop(s_led_timer);
+    if (s_identifying) {
+        esp_timer_start_periodic(s_led_timer, LED_BLINK_IDENTIFY_US);
+    } else if (s_commissioning_window_open) {
+        esp_timer_start_periodic(s_led_timer, LED_BLINK_COMMISSIONING_US);
+    } else {
+        status_led_set(true);
+    }
+}
+
+static void status_led_init() {
+    gpio_config_t io_conf = {};
+    io_conf.pin_bit_mask = (1ULL << kStatusLedGpio);
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&io_conf);
+    status_led_set(false);
+
+    esp_timer_create_args_t timer_args = {};
+    timer_args.callback = &status_led_timer_cb;
+    timer_args.name = "status_led";
+    esp_timer_create(&timer_args, &s_led_timer);
+}
+#else
+static void status_led_init() {}
+static void status_led_update_state() {}
+#endif
 
 static inline int16_t matter_scale_temp(float value) {
     return static_cast<int16_t>(value * MATTER_TEMP_SCALE);
@@ -105,6 +168,10 @@ void matter_event_callback(const ChipDeviceEvent *event, intptr_t arg) {
         // Signals that commissioning has completed via the general commissioning cluster command.
         case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
             ESP_LOGI(TAG, "Commissioning complete");
+#if CONFIG_STATUS_LED_GPIO >= 0
+            s_commissioning_window_open = false;
+            status_led_update_state();
+#endif
             break;
 
         // Indicates that the fail-safe timer expired before the CommissioningComplete command was invoked.
@@ -160,11 +227,19 @@ void matter_event_callback(const ChipDeviceEvent *event, intptr_t arg) {
         // Indicates that the commissioning window is now open.
         case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
             ESP_LOGI(TAG, "Commissioning window opened");
+#if CONFIG_STATUS_LED_GPIO >= 0
+            s_commissioning_window_open = true;
+            status_led_update_state();
+#endif
             break;
 
         // Indicates that the commissioning window is now closed.
         case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
             ESP_LOGI(TAG, "Commissioning window closed");
+#if CONFIG_STATUS_LED_GPIO >= 0
+            s_commissioning_window_open = false;
+            status_led_update_state();
+#endif
             break;
 
         // Indicates that a fabric is about to be removed.
@@ -197,6 +272,14 @@ esp_err_t identification_callback(esp_matter::identification::callback_type_t co
                                   uint8_t const effect_id, uint8_t const effect_variant, void *priv_data) {
     ESP_LOGI(TAG, "Identification Callback Invoked: type=%d, endpoint_id=%u, effect_id=%u, effect_variant=%u", type,
              (unsigned int)endpoint_id, (unsigned int)effect_id, (unsigned int)effect_variant);
+#if CONFIG_STATUS_LED_GPIO >= 0
+    if (type == esp_matter::identification::START || type == esp_matter::identification::EFFECT) {
+        s_identifying = true;
+    } else if (type == esp_matter::identification::STOP) {
+        s_identifying = false;
+    }
+    status_led_update_state();
+#endif
     return ESP_OK;
 }
 
@@ -213,6 +296,8 @@ esp_err_t matter_init(uint16_t *temperature_sensor_endpoint_id, uint16_t *pressu
                       const float max_temperature, const float initial_temperature, const float min_pressure,
                       const float max_pressure, const float initial_pressure, const float min_relative_humidity,
                       const float max_relative_humidity, const float initial_relative_humidity) {
+    status_led_init();
+
     // Initialize Matter Node, where
     // - node_config is the configuration object for the nodeset_callback
     // - app_attribute_update_cb is the callback for handling attribute updates for the temperature sensor
@@ -265,6 +350,7 @@ esp_err_t matter_init(uint16_t *temperature_sensor_endpoint_id, uint16_t *pressu
         return matter_err;
     }
     ESP_LOGI(TAG, "Matter started");
+    status_led_update_state();
 
     // Console shell is helpful when developing/debugging the application.
     // Set CONFIG_ENABLE_CHIP_SHELL=n in sdkconfig.defaults in production.
