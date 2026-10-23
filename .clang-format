@@ -1,10 +1,77 @@
+---
+# Base style to inherit from. LLVM and Google are the industry standards for C++.
 BasedOnStyle: LLVM
+
+# Language strictly set to C++ to ensure correct parsing of templates, lambdas, and modern syntax.
+Language: Cpp
+Standard: c++20
+
+# --- Core Formatting & Indentation ---
+# Modern preference is often 4 spaces for readability, though Google uses 2. 
 IndentWidth: 4
-ColumnLimit: 120
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+MaxEmptyLinesToKeep: 1
+
+# --- Braces & Control Flow ---
+# Attach braces to the statement (e.g., `if (x) {` instead of dropping to a new line).
 BreakBeforeBraces: Attach
-IndentCaseLabels: true
-PointerAlignment: Right
-SortIncludes: false
-AllowShortFunctionsOnASingleLine: Empty
-AllowShortIfStatementsOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# --- Pointers & References ---
+# Align pointers/references to the type: `int* a;` instead of `int *a;` or `int * a;`
+PointerAlignment: Left
+# When multiple variables are defined, enforce pointer alignment on each.
+DerivePointerAlignment: false
+
+# --- Alignment & Spacing ---
+# Align consecutive assignments and declarations for cleaner blocks of variables.
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
+
+# Keep spaces inside parentheses out (e.g., `if ( true )` becomes `if (true)`).
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpaceInEmptyParentheses: false
+# Requires a space before assignment operators (`int a = 5;`).
+SpaceBeforeAssignmentOperators: true
+
+# --- Includes Sorting & Grouping ---
+# Sort includes and group them into logical blocks separated by empty lines.
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # 1. System headers (e.g., <iostream>)
+  - Regex:           '^<[a-z_0-9]+>$'
+    Priority:        1
+  # 2. C-system headers (e.g., <stdint.h>)
+  - Regex:           '^<.*\.h>'
+    Priority:        2
+  # 3. Third-party library headers (e.g., <esp_matter.h>)
+  - Regex:           '^<.*>'
+    Priority:        3
+  # 4. Project local headers (e.g., "matter_manager.h")
+  - Regex:           '.*'
+    Priority:        4
+
+# --- Namespace Formatting ---
+# Do not indent the contents of namespaces to save horizontal space.
+NamespaceIndentation: None
+# Automatically add a comment at the closing brace of a namespace: `} // namespace my_app`
+FixNamespaceComments: true
+
+# --- Preprocessor Directives ---
+# Indent preprocessor directives based on the hash `#` for nested macros.
+IndentPPDirectives: AfterHash
+
+# --- Parameter Wrapping ---
+# If function arguments exceed the ColumnLimit, put each parameter on its own line.
+BinPackArguments: false
+BinPackParameters: false
+AlignAfterOpenBracket: Align
