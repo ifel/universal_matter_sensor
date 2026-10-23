@@ -1,0 +1,26 @@
+CompileFlags:
+  Remove: 
+    - -fno-shrink-wrap
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+
+---
+# Mute all diagnostics originating from Espressif's hidden tooling folder
+If:
+  PathMatch: .*/\.espressif/.*
+Diagnostics:
+  Suppress: "*"
+
+---
+# Mute all diagnostics originating from the core ESP-IDF repository
+If:
+  PathMatch: .*/esp-idf/.*
+Diagnostics:
+  Suppress: "*"
+
+---
+# Mute all diagnostics originating from the Matter components
+If:
+  PathMatch: .*/components/(esp_matter|chip)/.*
+Diagnostics:
+  Suppress: "*"

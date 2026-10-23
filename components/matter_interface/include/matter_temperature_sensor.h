@@ -18,9 +18,10 @@
  *      - ESP_OK on success.
  *      - ESP_FAIL on failure.
  */
-esp_err_t create_temperature_sensor_endpoint(esp_matter::node_t *matter_node, uint16_t *endpoint_id,
-                                             nullable<int16_t> scaled_min_temperature,
-                                             nullable<int16_t> scaled_max_temperature,
-                                             nullable<int16_t> scaled_initial_temperature);
+esp_err_t createTemperatureSensorEndpoint(esp_matter::node_t* matter_node,
+                                          uint16_t* endpoint_id,
+                                          nullable<int16_t> scaled_min_temperature,
+                                          nullable<int16_t> scaled_max_temperature,
+                                          nullable<int16_t> scaled_initial_temperature);
 
 #endif // MATTER_TEMPERATURE_SENSOR_H

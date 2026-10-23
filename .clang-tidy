@@ -1,17 +1,54 @@
+---
+# Enable critical bug-finding, performance, and readability checks,
+# while explicitly disabling noisy or overly pedantic rules.
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   clang-analyzer-*,
+  cppcoreguidelines-*,
+  misc-*,
   modernize-*,
-  -modernize-use-trailing-return-type,
   performance-*,
+  portability-*,
   readability-*,
-  -readability-identifier-length,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-avoid-magic-numbers,
   -readability-magic-numbers,
-  -readability-isolate-declaration
-HeaderFilterRegex: '(main|components/matter_interface)/.*'
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion
+
+# Treat specific high-severity warnings as compilation errors
+WarningsAsErrors: >
+  bugprone-use-after-move,
+  bugprone-memory-leak,
+  clang-analyzer-cplusplus.NewDeleteLeaks,
+  clang-analyzer-core.NullDereference
+
+# Analyze only project headers, ignoring third-party components
+# Adjust this regex to match your local source tree
+HeaderFilterRegex: '^(main|components/matter_interface)/.*'
+
+# General Options
 FormatStyle: file
+
 CheckOptions:
-  - key: readability-function-cognitive-complexity.IgnoreMacros
-    value: 'true'
+  # Enforce consistent naming conventions
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  
+  # Allow passing small trivially-copyable types by value without warning
+  performance-unnecessary-value-param.AllowedTypes: '[a-z0-9_]+_t'
+...

@@ -3,13 +3,13 @@
 #include <esp_log.h>
 #include <esp_matter.h>
 
-static auto TAG = "   ***matter_interface***   ";
+constexpr const char* tag = "   ***matter_interface***   ";
 
-esp_err_t create_temperature_sensor_endpoint(esp_matter::node_t*     matter_node,
-                                             uint16_t*               endpoint_id,
-                                             const nullable<int16_t> scaled_min_temperature,
-                                             const nullable<int16_t> scaled_max_temperature,
-                                             const nullable<int16_t> scaled_initial_temperature) {
+esp_err_t createTemperatureSensorEndpoint(esp_matter::node_t* matter_node,
+                                          uint16_t* endpoint_id,
+                                          const nullable<int16_t> scaled_min_temperature,
+                                          const nullable<int16_t> scaled_max_temperature,
+                                          const nullable<int16_t> scaled_initial_temperature) {
 
     esp_matter::endpoint::temperature_sensor::config_t temperature_sensor_endpoint_config;
     temperature_sensor_endpoint_config.temperature_measurement.min_measured_value =
@@ -25,12 +25,12 @@ esp_err_t create_temperature_sensor_endpoint(esp_matter::node_t*     matter_node
                                                          esp_matter::ENDPOINT_FLAG_NONE,
                                                          nullptr);
     if (temperature_sensor_endpoint == nullptr) {
-        ESP_LOGE(TAG, "Failed to create temperature sensor endpoint.");
+        ESP_LOGE(tag, "Failed to create temperature sensor endpoint.");
         return ESP_FAIL;
     }
 
     *endpoint_id = esp_matter::endpoint::get_id(temperature_sensor_endpoint);
-    ESP_LOGI(TAG, "Temperature sensor endpoint created with id %d", *endpoint_id);
+    ESP_LOGI(tag, "Temperature sensor endpoint created with id %d", *endpoint_id);
 
     esp_matter::cluster::binding::config_t config;
     esp_matter::cluster::binding::create(

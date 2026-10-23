@@ -20,7 +20,7 @@ BreakBeforeBraces: Attach
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Empty
-AllowShortBlocksOnASingleLine: false
+AllowShortBlocksOnASingleLine: Always
 AllowShortCaseLabelsOnASingleLine: false
 
 # --- Pointers & References ---
@@ -31,9 +31,9 @@ DerivePointerAlignment: false
 
 # --- Alignment & Spacing ---
 # Align consecutive assignments and declarations for cleaner blocks of variables.
-AlignConsecutiveAssignments: true
-AlignConsecutiveDeclarations: true
-AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignConsecutiveMacros: Consecutive
 
 # Keep spaces inside parentheses out (e.g., `if ( true )` becomes `if (true)`).
 SpacesInParentheses: false
@@ -73,5 +73,5 @@ IndentPPDirectives: AfterHash
 # --- Parameter Wrapping ---
 # If function arguments exceed the ColumnLimit, put each parameter on its own line.
 BinPackArguments: false
-BinPackParameters: false
+BinPackParameters: OnePerLine
 AlignAfterOpenBracket: Align
