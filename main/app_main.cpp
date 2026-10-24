@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "matter_manager.h"
 #include "nvs_flash.h"
+#include "value_ranges.h"
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #    include <platform/ESP32/OpenthreadLauncher.h>
@@ -14,18 +15,6 @@
 
 // Logging tag
 constexpr const char* tag = "   ***app_main***   ";
-
-// Temperature range
-constexpr float BMP280_TEMP_MIN_DEG_CELSIUS = -40.0;
-constexpr float BMP280_TEMP_MAX_DEG_CELSIUS = 85.0;
-
-// Pressure range
-constexpr float BMP280_PRESS_MIN_PA = 30000.0;
-constexpr float BMP280_PRESS_MAX_PA = 110000.0;
-
-// Relative Humidity range
-constexpr float BMP280_HUMI_MIN_PERCENT = 0.0;
-constexpr float BMP280_HUMI_MAX_PERCENT = 100.0;
 
 // BMP280 / BME280 Sensor Configuration (from Kconfig)
 #define BMP280_I2C_ADDRESS CONFIG_BMP280_I2C_ADDRESS
@@ -35,16 +24,10 @@ constexpr float BMP280_HUMI_MAX_PERCENT = 100.0;
 
 // Matter Configuration
 #define MATTER_TEMP_SENSOR_INITIAL_VALUE                                                           \
-    BMP280_TEMP_MAX_DEG_CELSIUS // Initial temperature value for Matter (in °C)
-#define MATTER_TEMP_MIN            BMP280_TEMP_MIN_DEG_CELSIUS // Minimum temperature value
-#define MATTER_TEMP_MAX            BMP280_TEMP_MAX_DEG_CELSIUS // Maximum temperature value
-#define MATTER_PRESS_INITIAL_VALUE BMP280_PRESS_MAX_PA // Initial pressure value for Matter (in Pa)
-#define MATTER_PRESS_MIN           BMP280_PRESS_MIN_PA // Minimum pressure value
-#define MATTER_PRESS_MAX           BMP280_PRESS_MAX_PA // Maximum pressure value
+    bmp_280_temp_max_deg_celsius // Initial temperature value for Matter (in °C)
+#define MATTER_PRESS_INITIAL_VALUE bmp_280_press_max_pa // Initial pressure value for Matter (in Pa)
 #define MATTER_HUMI_INITIAL_VALUE                                                                  \
-    BMP280_HUMI_MAX_PERCENT                     // Initial humidity value for Matter (in %)
-#define MATTER_HUMI_MIN BMP280_HUMI_MIN_PERCENT // Minimum humidity value
-#define MATTER_HUMI_MAX BMP280_HUMI_MAX_PERCENT // Maximum humidity value
+    bmp_280_humi_max_percent // Initial humidity value for Matter (in %)
 
 // Task Configuration
 #define SENSOR_READ_DELAY_MS CONFIG_SENSOR_READ_DELAY_MS // Delay between sensor readings (in ms)
@@ -134,22 +117,11 @@ extern "C" void app_main() {
 
     // Initialize Matter
     ESP_LOGI(tag, "Initializing Matter interface...");
-    uint16_t temp_sensor_ep_id = 0;
-    uint16_t press_sensor_ep_id = 0;
-    uint16_t humi_sensor_ep_id = 0;
-    uint16_t* humi_ep_ptr = is_bme280 ? &humi_sensor_ep_id : nullptr;
-    err = matterInit(&temp_sensor_ep_id,
-                     &press_sensor_ep_id,
-                     humi_ep_ptr,
-                     MATTER_TEMP_MIN,
-                     MATTER_TEMP_MAX,
-                     MATTER_TEMP_SENSOR_INITIAL_VALUE,
-                     MATTER_PRESS_MIN,
-                     MATTER_PRESS_MAX,
-                     MATTER_PRESS_INITIAL_VALUE,
-                     MATTER_HUMI_MIN,
-                     MATTER_HUMI_MAX,
-                     MATTER_HUMI_INITIAL_VALUE);
+    MatterManager matter_manager{};
+    err = matter_manager.init(MATTER_TEMP_SENSOR_INITIAL_VALUE,
+                              MATTER_PRESS_INITIAL_VALUE,
+                              MATTER_HUMI_INITIAL_VALUE,
+                              is_bme280);
     if (err != ESP_OK) {
         ESP_LOGE(tag, "Matter initialization failed: %s", esp_err_to_name(err));
         return;
@@ -181,12 +153,7 @@ extern "C" void app_main() {
 
             // Update Matter attributes
             // NOLINTNEXTLINE(readability-suspicious-call-argument)
-            err = matterUpdateValues(temp_sensor_ep_id,
-                                     press_sensor_ep_id,
-                                     humi_ep_ptr,
-                                     temperature,
-                                     pressure,
-                                     humidity);
+            err = matter_manager.updateValues(temperature, pressure, humidity);
             if (err != ESP_OK) {
                 ESP_LOGE(tag, "Failed to update Matter attributes: %s", esp_err_to_name(err));
             }

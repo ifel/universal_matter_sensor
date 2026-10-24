@@ -14,9 +14,7 @@
 #include <esp_timer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
-#include "matter_pressure_sensor.h"
-#include "matter_relative_humidity_sensor.h"
-#include "matter_temperature_sensor.h"
+#include "value_ranges.h"
 
 // Define the rendezvous mode for Matter commissioning if missing from Kconfig.
 // This tells the commissioner (phone) how to connect for the initial Wi-Fi handover.
@@ -38,6 +36,9 @@ constexpr uint8_t CONFIG_RENDEZVOUS_MODE = 2; // NOLINT(readability-identifier-n
 
 using namespace chip::app;
 using namespace chip::app::Clusters;
+using namespace esp_matter::data_model;
+using namespace esp_matter::endpoint;
+using namespace esp_matter::cluster::binding;
 
 constexpr float matter_temp_scale = 100.0F;
 constexpr float matter_relative_humidity_scale = 100.0F;
@@ -48,17 +49,17 @@ constexpr uint32_t led_blink_identify_us = 200 * 1000;
 
 constexpr const char* tag = "   ***matter_interface***   ";
 
+namespace {
 #if CONFIG_STATUS_LED_GPIO >= 0
-static constexpr gpio_num_t k_status_led_gpio = static_cast<gpio_num_t>(CONFIG_STATUS_LED_GPIO);
+constexpr gpio_num_t k_status_led_gpio = static_cast<gpio_num_t>(CONFIG_STATUS_LED_GPIO);
 #    ifdef CONFIG_STATUS_LED_ACTIVE_LOW
-static constexpr uint32_t k_led_on_level = 0;
-static constexpr uint32_t k_led_off_level = 1;
+constexpr uint32_t k_led_on_level = 0;
+constexpr uint32_t k_led_off_level = 1;
 #    else
-static constexpr uint32_t k_led_on_level = 1;
-static constexpr uint32_t k_led_off_level = 0;
+constexpr uint32_t k_led_on_level = 1;
+constexpr uint32_t k_led_off_level = 0;
 #    endif
 
-namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 esp_timer_handle_t s_led_timer = nullptr;
 bool s_led_on = false; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -385,10 +386,16 @@ inline uint16_t matterScaleRelativeHumidity(float value) {
 
 class RAIIUpdateMatterValues {
   public:
-    RAIIUpdateMatterValues() { // NOLINT(modernize-use-equals-default)
+    RAIIUpdateMatterValues() = delete;
+    RAIIUpdateMatterValues(const uint16_t temperature_sensor_endpoint_id,
+                           const uint16_t pressure_sensor_endpoint_id,
+                           const std::optional<uint16_t> relative_humidity_sensor_endpoint_id)
+        : temperature_sensor_endpoint_id_(temperature_sensor_endpoint_id),
+          pressure_sensor_endpoint_id_(pressure_sensor_endpoint_id),
+          relative_humidity_sensor_endpoint_id_(relative_humidity_sensor_endpoint_id) {
         chip::DeviceLayer::PlatformMgr().LockChipStack();
     }
-    ~RAIIUpdateMatterValues() { // NOLINT(modernize-use-equals-default)
+    ~RAIIUpdateMatterValues() {
         chip::DeviceLayer::PlatformMgr().UnlockChipStack();
     }
 
@@ -400,16 +407,14 @@ class RAIIUpdateMatterValues {
     RAIIUpdateMatterValues(RAIIUpdateMatterValues&&) = delete;
     RAIIUpdateMatterValues& operator=(RAIIUpdateMatterValues&&) = delete;
 
-    // NOLINTNEXTLINE(readability-convert-member-functions-to-static,readability-function-cognitive-complexity)
-    esp_err_t updateValues(const uint16_t temperature_endpoint_id,
-                           const uint16_t pressure_sensor_endpoint_id,
-                           const uint16_t* relative_humidity_endpoint_id,
-                           const float new_temperature,
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    esp_err_t updateValues(const float new_temperature,
                            const float new_pressure,
                            const float new_relative_humidity) {
+        auto ret = ESP_OK;
         // Update temperature
-        auto* temperature_cluster = esp_matter::data_model::provider::get_instance().registry().Get(
-            ConcreteClusterPath(temperature_endpoint_id, TemperatureMeasurement::Id));
+        auto* temperature_cluster = provider::get_instance().registry().Get(
+            ConcreteClusterPath(temperature_sensor_endpoint_id_, TemperatureMeasurement::Id));
         if (temperature_cluster != nullptr) {
             CHIP_RETURN_ON_FAIL(
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
@@ -418,11 +423,14 @@ class RAIIUpdateMatterValues {
                         DataModel::MakeNullable<int16_t>((matterScaleTemp(new_temperature)))),
                 tag,
                 "Failed to update temperature sensor endpoint with new temperature value");
+        } else {
+            ESP_LOGE(tag, "Temperature cluster not found for endpoint %u", temperature_sensor_endpoint_id_);
+            ret = ESP_FAIL;
         }
 
         // Update pressure
-        auto* pressure_cluster = esp_matter::data_model::provider::get_instance().registry().Get(
-            ConcreteClusterPath(pressure_sensor_endpoint_id, PressureMeasurement::Id));
+        auto* pressure_cluster = provider::get_instance().registry().Get(
+            ConcreteClusterPath(pressure_sensor_endpoint_id_, PressureMeasurement::Id));
         if (pressure_cluster != nullptr) {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             CHIP_RETURN_ON_FAIL(
@@ -431,13 +439,16 @@ class RAIIUpdateMatterValues {
                         DataModel::MakeNullable<int16_t>((matterScalePressureToKpa(new_pressure)))),
                 tag,
                 "Failed to update pressure sensor endpoint with new pressure value");
+        } else {
+            ESP_LOGE(tag, "Pressure cluster not found for endpoint %u", pressure_sensor_endpoint_id_);
+            ret = ESP_FAIL;
         }
 
         // Update relative humidity if endpoint is enabled
-        if (relative_humidity_endpoint_id != nullptr) {
-            auto* relative_humidity_cluster =
-                esp_matter::data_model::provider::get_instance().registry().Get(ConcreteClusterPath(
-                    *relative_humidity_endpoint_id, RelativeHumidityMeasurement::Id));
+        if (relative_humidity_sensor_endpoint_id_.has_value()) {
+            auto* relative_humidity_cluster = provider::get_instance().registry().Get(
+                ConcreteClusterPath(relative_humidity_sensor_endpoint_id_.value(),
+                                    RelativeHumidityMeasurement::Id));
             if (relative_humidity_cluster != nullptr) {
                 CHIP_RETURN_ON_FAIL(
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
@@ -447,27 +458,28 @@ class RAIIUpdateMatterValues {
                     tag,
                     "Failed to update relative humidity sensor endpoint with new relative humidity "
                     "value");
+            } else {
+                ESP_LOGE(tag,
+                         "Relative humidity cluster not found for endpoint %u",
+                         relative_humidity_sensor_endpoint_id_.value());
+                ret = ESP_FAIL;
             }
         }
 
-        return ESP_OK;
+        return ret;
     }
+
+  private:
+    uint16_t temperature_sensor_endpoint_id_ = 0;
+    uint16_t pressure_sensor_endpoint_id_ = 0;
+    std::optional<uint16_t> relative_humidity_sensor_endpoint_id_ = std::nullopt;
 };
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t matterInit(
-    uint16_t* temperature_sensor_endpoint_id,
-    uint16_t* pressure_sensor_endpoint_id,
-    uint16_t* relative_humidity_sensor_endpoint_id, // NOLINT(readability-non-const-parameter)
-    const float min_temperature,
-    const float max_temperature,
-    const float initial_temperature,
-    const float min_pressure,
-    const float max_pressure,
-    const float initial_pressure,
-    const float min_relative_humidity,
-    const float max_relative_humidity,
-    const float initial_relative_humidity) {
+/// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t MatterManager::init(const float initial_temperature,
+                              const float initial_pressure,
+                              const float initial_relative_humidity,
+                              const bool is_bme280) {
     statusLedInit();
 
     // Initialize Matter Node, where
@@ -486,9 +498,8 @@ esp_err_t matterInit(
 
     // Initialize Matter temperature sensor endpoint
     if (createTemperatureSensorEndpoint(matter_node,
-                                        temperature_sensor_endpoint_id,
-                                        matterScaleTemp(min_temperature),
-                                        matterScaleTemp(max_temperature),
+                                        matterScaleTemp(bmp_280_temp_min_deg_celsius),
+                                        matterScaleTemp(bmp_280_temp_max_deg_celsius),
                                         matterScaleTemp(initial_temperature)) != ESP_OK) {
         ESP_LOGE(tag, "Failed to initialize temperature sensor.");
         return ESP_FAIL;
@@ -498,9 +509,8 @@ esp_err_t matterInit(
     // Initialize Matter pressure sensor endpoint
     // Pass scaled values to the endpoint creation function
     if (createPressureSensorEndpoint(matter_node,
-                                     pressure_sensor_endpoint_id,
-                                     matterScalePressureToKpa(min_pressure),
-                                     matterScalePressureToKpa(max_pressure),
+                                     matterScalePressureToKpa(bmp_280_press_min_pa),
+                                     matterScalePressureToKpa(bmp_280_press_max_pa),
                                      matterScalePressureToKpa(initial_pressure)) != ESP_OK) {
         ESP_LOGE(tag, "Failed to initialize pressure sensor");
         return ESP_FAIL;
@@ -508,12 +518,11 @@ esp_err_t matterInit(
 
     // Initialize Matter relative humidity sensor endpoint (optional, only when sensor supports
     // humidity)
-    if (relative_humidity_sensor_endpoint_id != nullptr) {
+    if (is_bme280) {
         if (createRelativeHumiditySensorEndpoint(
                 matter_node,
-                relative_humidity_sensor_endpoint_id,
-                matterScaleRelativeHumidity(min_relative_humidity),
-                matterScaleRelativeHumidity(max_relative_humidity),
+                matterScaleRelativeHumidity(bmp_280_humi_min_percent),
+                matterScaleRelativeHumidity(bmp_280_humi_max_percent),
                 matterScaleRelativeHumidity(initial_relative_humidity)) != ESP_OK) {
             ESP_LOGE(tag, "Failed to initialize relative humidity sensor.");
             return ESP_FAIL;
@@ -548,16 +557,114 @@ esp_err_t matterInit(
     return ESP_OK;
 }
 
-esp_err_t matterUpdateValues(const uint16_t temperature_endpoint_id,
-                             const uint16_t pressure_sensor_endpoint_id,
-                             const uint16_t* relative_humidity_endpoint_id,
-                             const float new_temperature,
-                             const float new_pressure,
-                             const float new_relative_humidity) {
-    return RAIIUpdateMatterValues().updateValues(temperature_endpoint_id,
-                                                 pressure_sensor_endpoint_id,
-                                                 relative_humidity_endpoint_id,
-                                                 new_temperature,
-                                                 new_pressure,
-                                                 new_relative_humidity);
+esp_err_t MatterManager::updateValues(const float new_temperature,
+                                      const float new_pressure,
+                                      const float new_relative_humidity) {
+    return RAIIUpdateMatterValues(temperature_sensor_endpoint_id_,
+                                  pressure_sensor_endpoint_id_,
+                                  relative_humidity_sensor_endpoint_id_)
+        .updateValues(new_temperature, new_pressure, new_relative_humidity);
+}
+
+esp_err_t
+MatterManager::createTemperatureSensorEndpoint(esp_matter::node_t* matter_node,
+                                               const nullable<int16_t> scaled_min_temperature,
+                                               const nullable<int16_t> scaled_max_temperature,
+                                               const nullable<int16_t> scaled_initial_temperature) {
+
+    temperature_sensor::config_t temperature_sensor_endpoint_config;
+    temperature_sensor_endpoint_config.temperature_measurement.min_measured_value =
+        scaled_min_temperature;
+    temperature_sensor_endpoint_config.temperature_measurement.max_measured_value =
+        scaled_max_temperature;
+    temperature_sensor_endpoint_config.temperature_measurement.measured_value =
+        scaled_initial_temperature;
+
+    auto* temperature_sensor_endpoint = temperature_sensor::create(
+        matter_node, &temperature_sensor_endpoint_config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (temperature_sensor_endpoint == nullptr) {
+        ESP_LOGE(tag, "Failed to create temperature sensor endpoint.");
+        return ESP_FAIL;
+    }
+
+    temperature_sensor_endpoint_id_ = get_id(temperature_sensor_endpoint);
+    ESP_LOGI(
+        tag, "Temperature sensor endpoint created with id %d", temperature_sensor_endpoint_id_);
+
+    config_t config;
+    create(temperature_sensor_endpoint, &config, esp_matter::CLUSTER_FLAG_SERVER);
+
+    return ESP_OK;
+}
+
+esp_err_t MatterManager::createRelativeHumiditySensorEndpoint(
+    esp_matter::node_t* matter_node,
+    const nullable<uint16_t> min_relative_humidity,
+    const nullable<uint16_t> max_relative_humidity,
+    const nullable<uint16_t> initial_relative_humidity) {
+    humidity_sensor::config_t humidity_sensor_endpoint_config;
+    humidity_sensor_endpoint_config.relative_humidity_measurement.min_measured_value =
+        min_relative_humidity;
+    humidity_sensor_endpoint_config.relative_humidity_measurement.max_measured_value =
+        max_relative_humidity;
+    humidity_sensor_endpoint_config.relative_humidity_measurement.measured_value =
+        initial_relative_humidity;
+
+    auto* humidity_sensor_endpoint = humidity_sensor::create(
+        matter_node, &humidity_sensor_endpoint_config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (humidity_sensor_endpoint == nullptr) {
+        ESP_LOGE(tag, "Failed to create relative humidity sensor endpoint.");
+        return ESP_FAIL;
+    }
+
+    relative_humidity_sensor_endpoint_id_ = get_id(humidity_sensor_endpoint);
+    ESP_LOGI(tag,
+             "Relative humidity sensor endpoint created with id %d",
+             relative_humidity_sensor_endpoint_id_.value());
+
+    config_t config;
+    create(humidity_sensor_endpoint, &config, esp_matter::CLUSTER_FLAG_SERVER);
+
+    return ESP_OK;
+}
+
+/// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t MatterManager::createPressureSensorEndpoint(esp_matter::node_t* matter_node,
+                                                      const int16_t min_pressure,
+                                                      const int16_t max_pressure,
+                                                      const int16_t initial_pressure) {
+
+    // Validate that inputs are within the int16_t range
+    if (min_pressure > max_pressure) {
+        ESP_LOGE(tag, "Min pressure cannot be greater than max pressure.");
+        return ESP_FAIL;
+    }
+    if (initial_pressure < min_pressure || initial_pressure > max_pressure) {
+        ESP_LOGE(tag, "Initial pressure must be within min and max pressure range.");
+        return ESP_FAIL;
+    }
+
+    // Set up the pressure sensor endpoint
+    pressure_sensor::config_t pressure_sensor_endpoint_config;
+    pressure_sensor_endpoint_config.pressure_measurement.min_measured_value =
+        static_cast<nullable<int16_t>>(min_pressure);
+    pressure_sensor_endpoint_config.pressure_measurement.max_measured_value =
+        static_cast<nullable<int16_t>>(max_pressure);
+    pressure_sensor_endpoint_config.pressure_measurement.measured_value =
+        static_cast<nullable<int16_t>>(initial_pressure);
+
+    auto* pressure_sensor_endpoint = pressure_sensor::create(
+        matter_node, &pressure_sensor_endpoint_config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (pressure_sensor_endpoint == nullptr) {
+        ESP_LOGE(tag, "Failed to create pressure sensor endpoint.");
+        return ESP_FAIL;
+    }
+
+    pressure_sensor_endpoint_id_ = get_id(pressure_sensor_endpoint);
+    ESP_LOGI(tag, "Pressure sensor endpoint created with id %d", pressure_sensor_endpoint_id_);
+
+    config_t config;
+    create(pressure_sensor_endpoint, &config, esp_matter::CLUSTER_FLAG_SERVER);
+
+    return ESP_OK;
 }

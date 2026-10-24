@@ -6,8 +6,8 @@ if(NOT DEFINED ENV{ESP_MATTER_PATH})
 endif(NOT DEFINED ENV{ESP_MATTER_PATH})
 
 # The set() commands should be placed after the cmake_minimum() line but before the include() line.
-set(PROJECT_VER "1.0")
-set(PROJECT_VER_NUMBER 1)
+set(PROJECT_VER "1.1")
+set(PROJECT_VER_NUMBER 2)
 set(ESP_MATTER_PATH $ENV{ESP_MATTER_PATH})
 set(MATTER_SDK_PATH ${ESP_MATTER_PATH}/connectedhomeip/connectedhomeip)
 set(ENV{PATH} "$ENV{PATH}:${ESP_MATTER_PATH}/connectedhomeip/connectedhomeip/.environment/cipd/packages/pigweed")

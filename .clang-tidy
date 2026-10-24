@@ -48,6 +48,7 @@ CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
   readability-identifier-naming.StructCase: CamelCase
   readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-function-cognitive-complexity.Threshold: 50
   
   # Allow passing small trivially-copyable types by value without warning
   performance-unnecessary-value-param.AllowedTypes: '[a-z0-9_]+_t'
