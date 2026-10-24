@@ -20,10 +20,21 @@ This document describes how to commission the ESP32 Matter sensor into **Home As
 
 ---
 
-## 2. Home Assistant Prerequisites
+## 2. Home Assistant Prerequisites & Trusting Development / Self-Signed Certificates
 
 - The **Matter** integration must be installed in Home Assistant (**Settings → Devices & Services → Add Integration → Matter**).
 - Your network must have **2.4 GHz Wi-Fi** and **IPv6** enabled.
+
+### Trusting Self-Signed / Test Attestation Certificates (Required for DIY Devices)
+
+DIY / homemade Matter devices built with ESP-Matter use **test / self-signed Device Attestation Certificates (DACs)** (Test Vendor ID `0xFFF1`) rather than commercial CSA production certificates. Before commissioning, ensure both **Home Assistant** and your **phone (iOS / Android)** are configured to accept test/uncertified Matter devices:
+
+#### A. In Home Assistant (Matter Server Add-on / Container)
+
+1. **Home Assistant OS / Supervised (Matter Server Add-on)**:
+   - In Home Assistant, go to **Settings → Add-ons → Matter Server → Configuration**.
+   - Ensure **Enable test-net DCL (`enable_test_net_dcl`)** is enabled (enabled by default in recent Matter Server versions so test/development PAA certificates are trusted).
+   - If you generate custom self-signed PAA root certificates (outside the standard CHIP test PAA), place your root `.pem`/`.der` certificate into `/share/matter_server/credentials/` (or specify `--paa-root-cert-dir` in the container startup args) and restart the **Matter Server** add-on.
 
 ---
 
