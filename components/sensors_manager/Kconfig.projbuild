@@ -1,0 +1,41 @@
+menu "BMP280 / BME280 Sensor Configuration"
+
+    choice BMP280_I2C_ADDRESS_CHOICE
+        prompt "Sensor I2C Address"
+        default BMP280_I2C_ADDRESS_0X77
+        help
+            Select the I2C address of the BMP280/BME280 sensor.
+            Adafruit BME280/BMP280 modules default to 0x77 (SDO pulled high).
+            Generic modules with SDO connected to GND use 0x76.
+
+        config BMP280_I2C_ADDRESS_0X77
+            bool "0x77 (SDO high / Adafruit default)"
+        config BMP280_I2C_ADDRESS_0X76
+            bool "0x76 (SDO connected to GND)"
+    endchoice
+
+    config BMP280_I2C_ADDRESS
+        hex
+        default 0x77 if BMP280_I2C_ADDRESS_0X77
+        default 0x76 if BMP280_I2C_ADDRESS_0X76
+
+    config BMP280_I2C_PORT
+        int "I2C Port Number"
+        range 0 1
+        default 0
+        help
+            I2C port number used to communicate with the sensor.
+
+    config BMP280_I2C_SDA_GPIO
+        int "I2C SDA GPIO Number"
+        default 22
+        help
+            GPIO pin for I2C SDA line (GPIO 22 corresponds to pin D4 on Seeed Studio XIAO ESP32C6).
+
+    config BMP280_I2C_SCL_GPIO
+        int "I2C SCL GPIO Number"
+        default 23
+        help
+            GPIO pin for I2C SCL line (GPIO 23 corresponds to pin D5 on Seeed Studio XIAO ESP32C6).
+
+endmenu

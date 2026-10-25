@@ -1,13 +1,16 @@
-#include <cstring>
-
-#include <bmp280.h>
+#include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+
+// Provides CHIP_DEVICE_CONFIG_ENABLE_THREAD used below.
+#include <esp_matter.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
-#include "matter_manager.h"
+#include "esp_system.h"
+#include "matter_interface/matter_manager.h"
 #include "nvs_flash.h"
-#include "value_ranges.h"
+#include "sensors_manager/sensors_manager.h"
+#include "status_led/status_led.h"
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #    include <platform/ESP32/OpenthreadLauncher.h>
@@ -16,21 +19,21 @@
 // Logging tag
 constexpr const char* tag = "   ***app_main***   ";
 
-// BMP280 / BME280 Sensor Configuration (from Kconfig)
-#define BMP280_I2C_ADDRESS CONFIG_BMP280_I2C_ADDRESS
-#define GPIO_NUM_SDA       static_cast<gpio_num_t>(CONFIG_BMP280_I2C_SDA_GPIO)
-#define GPIO_NUM_SCL       static_cast<gpio_num_t>(CONFIG_BMP280_I2C_SCL_GPIO)
-#define I2C_PORT_NUM       static_cast<i2c_port_t>(CONFIG_BMP280_I2C_PORT)
-
-// Matter Configuration
-#define MATTER_TEMP_SENSOR_INITIAL_VALUE                                                           \
-    bmp_280_temp_max_deg_celsius // Initial temperature value for Matter (in °C)
-#define MATTER_PRESS_INITIAL_VALUE bmp_280_press_max_pa // Initial pressure value for Matter (in Pa)
-#define MATTER_HUMI_INITIAL_VALUE                                                                  \
-    bmp_280_humi_max_percent // Initial humidity value for Matter (in %)
-
 // Task Configuration
-#define SENSOR_READ_DELAY_MS CONFIG_SENSOR_READ_DELAY_MS // Delay between sensor readings (in ms)
+constexpr uint64_t sensor_read_delay_ms =
+    CONFIG_SENSOR_READ_DELAY_MS; // Delay between sensor readings (in ms)
+
+constexpr uint32_t restart_delay_ms = 10000;
+
+namespace {
+// Logs the reason and reboots so a transient fault (wiring, power) can recover.
+[[noreturn]] void restartAfterFailure(const char* reason) {
+    ESP_LOGE(
+        tag, "%s. Restarting in %u ms...", reason, static_cast<unsigned int>(restart_delay_ms));
+    vTaskDelay(pdMS_TO_TICKS(restart_delay_ms));
+    esp_restart();
+}
+} // namespace
 
 // NOLINTNEXTLINE(readability-identifier-naming, readability-function-cognitive-complexity)
 extern "C" void app_main() {
@@ -43,48 +46,6 @@ extern "C" void app_main() {
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     ESP_LOGI(tag, "NVS initialized.");
-
-    ESP_LOGI(tag, "Initializing I2C...");
-    err = i2cdev_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(tag, "I2C initialization failed: %s", esp_err_to_name(err));
-        return;
-    }
-    ESP_LOGI(tag, "I2C initialized.");
-
-    // Initialize BMP280
-    ESP_LOGI(tag, "Initializing BMP280 sensor...");
-    static bmp280_t bmp280_sensor{};
-
-    memset(&bmp280_sensor, 0, sizeof(bmp280_t));
-
-    bmp280_params_t params;
-    err = bmp280_init_default_params(&params);
-    if (err != ESP_OK) {
-        ESP_LOGE(tag,
-                 "BMP280 initialization bmp280_init_default_params failed: %s",
-                 esp_err_to_name(err));
-        return;
-    }
-
-    err = bmp280_init_desc(
-        &bmp280_sensor, BMP280_I2C_ADDRESS, I2C_PORT_NUM, GPIO_NUM_SDA, GPIO_NUM_SCL);
-    if (err != ESP_OK) {
-        ESP_LOGE(tag, "BMP280 initialization bmp280_init_desc failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    err = bmp280_init(&bmp280_sensor, &params);
-    if (err != ESP_OK) {
-        ESP_LOGE(tag, "BMP280 initialization bmp280_init failed: %s", esp_err_to_name(err));
-        return;
-    }
-    const bool is_bme280 = {bmp280_sensor.id ==
-                            BME280_CHIP_ID}; // NOLINT(cppcoreguidelines-init-variables)
-    ESP_LOGI(tag,
-             "Sensor initialized: %s detected (chip ID: 0x%02x).",
-             is_bme280 ? "BME280" : "BMP280",
-             bmp280_sensor.id);
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #    define ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG()                                                  \
@@ -103,9 +64,7 @@ extern "C" void app_main() {
             .netif_queue_size = 10,                                                                \
             .task_queue_size = 10,                                                                 \
         }
-#endif
 
-#if CHIP_DEVICE_CONFIG_ENABLE_THREAD
     /* Set OpenThread platform config */
     esp_openthread_platform_config_t config = {
         .radio_config = ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG(),
@@ -115,51 +74,55 @@ extern "C" void app_main() {
     set_openthread_platform_config(&config);
 #endif
 
+    // Initialize SensorsManager
+    SensorsManager sensors_manager;
+    if (sensors_manager.init() != ESP_OK) { restartAfterFailure("Sensors initialization failed"); }
+    if (!sensors_manager.isSensorsDetected()) { restartAfterFailure("No sensors detected"); }
+
+    // Initialize status LED and drive it from Matter state changes
+    StatusLed status_led;
+    status_led.init();
+
     // Initialize Matter
     ESP_LOGI(tag, "Initializing Matter interface...");
-    MatterManager matter_manager{};
-    err = matter_manager.init(MATTER_TEMP_SENSOR_INITIAL_VALUE,
-                              MATTER_PRESS_INITIAL_VALUE,
-                              MATTER_HUMI_INITIAL_VALUE,
-                              is_bme280);
+    MatterManager matter_manager;
+    matter_manager.setListeners({
+        .on_commissioning_window = [&status_led](bool open) { status_led.setCommissioning(open); },
+        .on_identify = [&status_led](bool identifying) { status_led.setIdentifying(identifying); },
+    });
+    err = matter_manager.init(sensors_manager.getRanges());
     if (err != ESP_OK) {
         ESP_LOGE(tag, "Matter initialization failed: %s", esp_err_to_name(err));
-        return;
+        restartAfterFailure("Matter initialization failed");
     }
     ESP_LOGI(tag, "Matter initialized.");
+    status_led.setReady(true);
 
     // Sensor read loop
-    float temperature = 0;
-    float pressure = 0;
-    float humidity = 0;
     while (true) {
-        err = bmp280_read_float(
-            &bmp280_sensor, &temperature, &pressure, is_bme280 ? &humidity : nullptr);
+        err = sensors_manager.readValues();
         if (err != ESP_OK) {
             ESP_LOGE(tag, "Failed to read sensor data: %s", esp_err_to_name(err));
-        } else {
-            if (is_bme280) {
-                ESP_LOGI(tag,
-                         "Temperature = %.2f°C, Pressure = %.2f hPa, Humidity = %.2f %%",
-                         temperature,
-                         pressure / 100.0,
-                         humidity);
-            } else {
-                ESP_LOGI(tag,
-                         "Temperature = %.2f°C, Pressure = %.2f hPa",
-                         temperature,
-                         pressure / 100.0);
-            }
+        }
 
-            // Update Matter attributes
-            // NOLINTNEXTLINE(readability-suspicious-call-argument)
-            err = matter_manager.updateValues(temperature, pressure, humidity);
-            if (err != ESP_OK) {
-                ESP_LOGE(tag, "Failed to update Matter attributes: %s", esp_err_to_name(err));
-            }
+        // Publish readings even on failure so unavailable values become null in Matter
+        const auto& readings = sensors_manager.getReadings();
+        const auto& temperature = readings[toIndex(SensorType::TEMPERATURE)];
+        const auto& pressure = readings[toIndex(SensorType::PRESSURE)];
+        const auto& relative_humidity = readings[toIndex(SensorType::RELATIVE_HUMIDITY)];
+        if (temperature.has_value()) { ESP_LOGI(tag, "Temperature = %.2f°C", *temperature); }
+        if (pressure.has_value()) { ESP_LOGI(tag, "Pressure = %.2f hPa", *pressure / 100.0F); }
+        if (relative_humidity.has_value()) {
+            ESP_LOGI(tag, "Relative Humidity = %.2f %%", *relative_humidity);
+        }
+
+        // Update Matter attributes
+        err = matter_manager.updateValues(readings);
+        if (err != ESP_OK) {
+            ESP_LOGE(tag, "Failed to update Matter attributes: %s", esp_err_to_name(err));
         }
 
         // Delay for next reading
-        vTaskDelay(pdMS_TO_TICKS(SENSOR_READ_DELAY_MS));
+        vTaskDelay(pdMS_TO_TICKS(sensor_read_delay_ms));
     }
 }

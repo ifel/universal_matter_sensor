@@ -6,8 +6,8 @@ if(NOT DEFINED ENV{ESP_MATTER_PATH})
 endif(NOT DEFINED ENV{ESP_MATTER_PATH})
 
 # The set() commands should be placed after the cmake_minimum() line but before the include() line.
-set(PROJECT_VER "1.1")
-set(PROJECT_VER_NUMBER 2)
+set(PROJECT_VER "5.0")
+set(PROJECT_VER_NUMBER 5)
 set(ESP_MATTER_PATH $ENV{ESP_MATTER_PATH})
 set(MATTER_SDK_PATH ${ESP_MATTER_PATH}/connectedhomeip/connectedhomeip)
 set(ENV{PATH} "$ENV{PATH}:${ESP_MATTER_PATH}/connectedhomeip/connectedhomeip/.environment/cipd/packages/pigweed")
@@ -26,8 +26,8 @@ set(EXTRA_COMPONENT_DIRS
 # Creates the project named matter_sensor
 project(matter_sensor)
 
-# Set the C++ standard to C++17
-idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++17;-Os;-DCHIP_HAVE_CONFIG_H;-Wno-overloaded-virtual" APPEND)
+# Set the C++ standard to C++20
+idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++20;-Os;-DCHIP_HAVE_CONFIG_H;-Wno-overloaded-virtual" APPEND)
 idf_build_set_property(C_COMPILE_OPTIONS "-Os" APPEND)
 # For RISCV chips, project_include.cmake sets -Wno-format, but does not clear various
 # flags that depend on -Wformat

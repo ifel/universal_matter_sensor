@@ -60,8 +60,18 @@ Connect the **Adafruit BME280** module to the **Seeed Studio XIAO ESP32C6** usin
 | **SCK** (SCL) | **D5** (SCL) | **GPIO23** | Configurable via `CONFIG_BMP280_I2C_SCL_GPIO` |
 | **SDO** | Unconnected | — | Pulled high on Adafruit module → default I2C address **`0x77`**. Connect to `GND` for `0x76`. |
 
-> **Auto-Detection**: At boot, the firmware checks the sensor's chip ID (`0x60` for BME280, `0x58` for BMP280). If a **BMP280** is detected, the Matter Relative Humidity endpoint is automatically omitted and only Temperature and Pressure are exposed.
-> **Onboard Status LED**: The onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
+> **Auto-Detection**: At boot, `SensorsManager` probes registered sensors and checks the chip ID (`0x60` for BME280, `0x58` for BMP280). `MatterManager` dynamically creates only the Matter endpoints whose `SensorType` range is reported by a detected sensor (omitting the Relative Humidity endpoint when a BMP280 is connected).
+> **Onboard Status LED**: Driven by the `status_led` component, the onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
+
+---
+
+## Project Structure
+
+- [`main/`](main/app_main.cpp) — Application entry point (`app_main`): initializes NVS, Thread/Wi-Fi, `SensorsManager`, `StatusLed`, and `MatterManager` (restarting after 10 s if sensors or Matter fail to initialize), then periodically polls sensors and updates Matter cluster attributes.
+- [`components/common_types/`](components/common_types/include/common_types/common_types.h) — Shared [`SensorType`](components/common_types/include/common_types/common_types.h) enum and [`SensorValueRange`](components/common_types/include/common_types/common_types.h) struct (`°C`, `Pa`, `%RH`).
+- [`components/sensors_manager/`](components/sensors_manager/include/sensors_manager/sensors_manager.h) — Abstract [`Sensor`](components/sensors_manager/include/sensors_manager/sensor.h) interface, [`Bmp280Bme280`](components/sensors_manager/src/sensors/bmp280_bme280.h) driver implementation, and [`SensorsManager`](components/sensors_manager/include/sensors_manager/sensors_manager.h) for probing active sensors, performing a single hardware read per chip, and serving readings/ranges by `SensorType`.
+- [`components/matter_interface/`](components/matter_interface/include/matter_interface/matter_manager.h) — [`MatterManager`](components/matter_interface/include/matter_interface/matter_manager.h) for creating Matter endpoints, scaling physical units to Matter attributes, and updating cluster `MeasuredValue` attributes.
+- [`components/status_led/`](components/status_led/include/status_led/status_led.h) — Thread-safe [`StatusLed`](components/status_led/include/status_led/status_led.h) helper driven by `setReady` (solid on), `setCommissioning` (slow blink) and `setIdentifying` (fast blink). It has no Matter dependency; `app_main` connects it to `MatterManager` listeners.
 
 ---
 
@@ -73,9 +83,13 @@ Connect the **Adafruit BME280** module to the **Seeed Studio XIAO ESP32C6** usin
 idf.py set-target esp32c6   # or esp32 / esp32h2
 ```
 
-### Step 2. Configure Sensor Settings (Optional)
+### Step 2. Configure Settings (Optional)
 
-Sensor I2C address (`0x77` default for Adafruit BME280, or `0x76`), SDA/SCL GPIOs (`22`/`23`), I2C port (`0`), and polling interval (`10000 ms`) can be customized in **`BMP280 / BME280 Sensor Configuration`**:
+Project settings are organized by component in `idf.py menuconfig`:
+
+- **`Application Configuration`** ([`main/Kconfig.projbuild`](main/Kconfig.projbuild)): Sensor polling interval (`CONFIG_SENSOR_READ_DELAY_MS`, default `10000 ms`).
+- **`BMP280 / BME280 Sensor Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Sensor I2C address (`0x77` default for Adafruit modules, or `0x76`), I2C port (`0`), and SDA/SCL GPIOs (`22`/`23`).
+- **`Status LED Configuration`** ([`components/status_led/Kconfig.projbuild`](components/status_led/Kconfig.projbuild)): Status LED GPIO (`15` default, `-1` to disable) and active-low polarity (`CONFIG_STATUS_LED_ACTIVE_LOW`).
 
 ```bash
 idf.py menuconfig
