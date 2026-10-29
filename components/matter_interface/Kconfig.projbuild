@@ -1,0 +1,10 @@
+menu "Matter Manager Configuration"
+
+    config MATTER_REPORT_MAX_INTERVAL_S
+        int "Max reporting interval (s)"
+        range 10 3600
+        default 180
+        help
+            Maximal interval in seconds between reportings.
+
+endmenu

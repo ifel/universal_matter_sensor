@@ -6,10 +6,14 @@
 #include <cstdint>
 #include <optional>
 
-// Physical measurement range (Temperature: °C, Pressure: Pa, Relative Humidity: %RH).
+// Physical measurement range and reporting thresholds
+// (Temperature: °C, Pressure: Pa, Relative Humidity: %RH).
 struct SensorValueRange {
     float min{};
     float max{};
+    float abs_threshold{
+        0.0F}; // Minimum absolute change to report immediately (same unit as min/max)
+    float rel_threshold{0.0F}; // Minimum relative change as a fraction of |last_reported_value|
 };
 
 // Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH).

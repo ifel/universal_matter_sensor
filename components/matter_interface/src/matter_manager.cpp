@@ -14,6 +14,7 @@
 #include <esp_matter.h>
 #include <esp_matter_console.h>
 #include <esp_matter_data_model.h>
+#include <esp_timer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 // Define the rendezvous mode for Matter commissioning if missing from Kconfig.
@@ -41,6 +42,8 @@ using namespace chip::app::Clusters;
 constexpr float matter_temp_scale = 100.0F;
 constexpr float matter_relative_humidity_scale = 100.0F;
 constexpr float matter_pressure_scale = 0.01F; // Scale - 10.0F and PA -> kPa => 10/1000
+constexpr int64_t report_max_interval_us =
+    static_cast<int64_t>(CONFIG_MATTER_REPORT_MAX_INTERVAL_S) * 1'000'000LL;
 
 constexpr const char* tag = "   ***matter_interface***   ";
 
@@ -349,55 +352,26 @@ nullable<uint16_t> matterScaleRelativeHumidity(float relative_humidity_pct,
         relative_humidity_pct, matter_relative_humidity_scale, sensor_value_range);
 }
 
-template <typename Cluster, typename ConvFn>
-esp_err_t
-updateValue(const std::optional<float> value, // NOLINT(readability-function-cognitive-complexity)
-            const std::optional<uint16_t> endpoint_id,
-            const std::optional<SensorValueRange> range,
-            ConvFn value_conv_func,
-            const char* type_name,
-            esp_matter::data_model::ClusterId cluster_id) {
-    if (!endpoint_id.has_value()) {
-        if (!value.has_value()) { return ESP_OK; } // type not exposed, nothing to publish
-        ESP_LOGE(tag, "%s sensor endpoint ID is not set", type_name);
-        return ESP_ERR_INVALID_ARG;
+bool shouldSkipReport(const std::optional<float>& value,
+                      const SensorValueRange& range,
+                      const std::optional<float>& last_reported_value,
+                      const int64_t last_report_time_us,
+                      const bool has_reported,
+                      const int64_t now_us) {
+    if (!has_reported || (now_us - last_report_time_us) >= report_max_interval_us) {
+        return false; // First report or max reporting interval elapsed
+    }
+    if (!value.has_value() && !last_reported_value.has_value()) {
+        return true; // Still unavailable, skip until max interval elapses
+    }
+    if (value.has_value() != last_reported_value.has_value()) {
+        return false; // Availability changed, report immediately
     }
 
-    if (!range.has_value()) {
-        ESP_LOGE(tag, "%s sensor value range is not provided", type_name);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
-        ConcreteClusterPath(*endpoint_id, cluster_id));
-    if (cluster == nullptr) {
-        ESP_LOGE(tag,
-                 "%s cluster not found for endpoint %u",
-                 type_name,
-                 static_cast<unsigned int>(*endpoint_id));
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    // An unavailable reading publishes null so clients never see a stale value.
-    using Nullable = std::invoke_result_t<ConvFn, float, SensorValueRange>;
-    const Nullable val = value.has_value() ? value_conv_func(*value, *range) : Nullable{};
-    if (value.has_value()) {
-        ESP_LOGD(tag, "Updating %s to %.2f", type_name, *value);
-    } else {
-        ESP_LOGW(tag, "%s value is not available, publishing null", type_name);
-    }
-
-    RETURN_ESP_ERR_ON_CHIP_FAIL(
-        // Registry entry for this cluster id is registered as exactly `Cluster`.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-        static_cast<Cluster*>(cluster)->SetMeasuredValue(
-            val.is_null() ? DataModel::NullNullable : DataModel::MakeNullable(val.value())),
-        tag,
-        "Failed to update %s sensor endpoint with new %s value",
-        type_name,
-        type_name);
-
-    return ESP_OK;
+    const float delta = std::abs(*value - *last_reported_value);
+    const float threshold =
+        std::max(range.abs_threshold, range.rel_threshold * std::abs(*last_reported_value));
+    return delta < threshold;
 }
 
 template <typename T> bool isValidScaledRange(const nullable<T>& min, const nullable<T>& max) {
@@ -563,26 +537,100 @@ MatterManager::init(const SensorRanges& ranges) {
     return ESP_OK;
 }
 
+template <typename Cluster, typename ConvFn>
+esp_err_t MatterManager::updateValue(const std::optional<float> value,
+                                     Measurement& measurement,
+                                     ConvFn value_conv_func,
+                                     const char* type_name,
+                                     const uint32_t cluster_id) {
+    if (!measurement.endpoint_id.has_value()) {
+        if (!value.has_value()) { return ESP_OK; } // type not exposed, nothing to publish
+        ESP_LOGE(tag, "%s sensor endpoint ID is not set", type_name);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!measurement.range.has_value()) {
+        ESP_LOGE(tag, "%s sensor value range is not provided", type_name);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+        ConcreteClusterPath(*measurement.endpoint_id, cluster_id));
+    if (cluster == nullptr) {
+        ESP_LOGE(tag,
+                 "%s cluster not found for endpoint %u",
+                 type_name,
+                 static_cast<unsigned int>(*measurement.endpoint_id));
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const int64_t now_us = esp_timer_get_time();
+    if (shouldSkipReport(value,
+                         *measurement.range,
+                         measurement.last_reported_value,
+                         measurement.last_report_time_us,
+                         measurement.has_reported,
+                         now_us)) {
+        ESP_LOGD(tag,
+                 "Skipping reporting for %s, value has not changed noticeably since last report",
+                 type_name);
+        return ESP_OK;
+    }
+
+    // An unavailable reading publishes null so clients never see a stale value.
+    using Nullable = std::invoke_result_t<ConvFn, float, SensorValueRange>;
+    const Nullable val =
+        value.has_value() ? value_conv_func(*value, *measurement.range) : Nullable{};
+    const auto matter_val =
+        val.is_null() ? DataModel::NullNullable : DataModel::MakeNullable(val.value());
+
+    // Registry entry for this cluster id is registered as exactly `Cluster`.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+    auto* typed_cluster = static_cast<Cluster*>(cluster);
+
+    // Keep last_reported_value unchanged if scaled integer did not change (e.g. sub-LSB step).
+    if (typed_cluster->GetMeasuredValue() == matter_val) {
+        if (!measurement.has_reported ||
+            (now_us - measurement.last_report_time_us) >= report_max_interval_us) {
+            measurement.last_report_time_us = now_us;
+            measurement.has_reported = true;
+        }
+        return ESP_OK;
+    }
+
+    if (value.has_value()) {
+        ESP_LOGI(tag, "Updating %s to %.2f", type_name, *value);
+    } else {
+        ESP_LOGW(tag, "%s value is not available, publishing null", type_name);
+    }
+
+    RETURN_ESP_ERR_ON_CHIP_FAIL(typed_cluster->SetMeasuredValue(matter_val),
+                                tag,
+                                "Failed to update %s sensor endpoint with new %s value",
+                                type_name,
+                                type_name);
+
+    measurement.last_reported_value = value;
+    measurement.last_report_time_us = now_us;
+    measurement.has_reported = true;
+
+    return ESP_OK;
+}
+
 esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     esp_matter::lock::ScopedChipStackLock lock(portMAX_DELAY);
-
-    const auto& temperature = measurements_[toIndex(SensorType::TEMPERATURE)];
-    const auto& pressure = measurements_[toIndex(SensorType::PRESSURE)];
-    const auto& humidity = measurements_[toIndex(SensorType::RELATIVE_HUMIDITY)];
 
     auto ret = ESP_OK;
     auto result =
         updateValue<TemperatureMeasurementCluster>(values[toIndex(SensorType::TEMPERATURE)],
-                                                   temperature.endpoint_id,
-                                                   temperature.range,
+                                                   measurements_[toIndex(SensorType::TEMPERATURE)],
                                                    matterScaleTemp,
                                                    "temperature",
                                                    TemperatureMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     result = updateValue<PressureMeasurementCluster>(values[toIndex(SensorType::PRESSURE)],
-                                                     pressure.endpoint_id,
-                                                     pressure.range,
+                                                     measurements_[toIndex(SensorType::PRESSURE)],
                                                      matterScalePressureToKpa,
                                                      "pressure",
                                                      PressureMeasurement::Id);
@@ -590,8 +638,7 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
 
     result = updateValue<RelativeHumidityMeasurementCluster>(
         values[toIndex(SensorType::RELATIVE_HUMIDITY)],
-        humidity.endpoint_id,
-        humidity.range,
+        measurements_[toIndex(SensorType::RELATIVE_HUMIDITY)],
         matterScaleRelativeHumidity,
         "relative humidity",
         RelativeHumidityMeasurement::Id);

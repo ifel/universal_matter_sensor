@@ -13,6 +13,7 @@ It supports both:
 
 - [**Home Assistant Commissioning & QR Code Guide**](docs/home_assistant_commissioning.md) — How to pair the device over Matter-over-Wi-Fi (via the Home Assistant Companion App or pure Wi-Fi) and how to use **ESP Launchpad** or **`esp-matter-mfg-tool`** to simplify flashing and QR code generation.
 - [**Matter OTA Firmware Updates Guide**](docs/ota_firmware_updates.md) — How to enable Matter OTA Requestor, build `.ota` upgrade images, and push firmware updates via Home Assistant or Espressif portals.
+- [**Sensor Reporting Thresholds & Heartbeat Throttling**](docs/sensor_reporting_thresholds.md) — How deadband filtering (`abs_threshold` + `rel_threshold`) and periodic heartbeat reporting work, with reference datasheet tables for BMP280/BME280, BMP581, TMP119, SHT45, SCD-30, and VEML7700.
 
 ---
 

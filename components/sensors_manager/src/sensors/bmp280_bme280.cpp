@@ -15,28 +15,35 @@ Bmp280Bme280::~Bmp280Bme280() {
 }
 
 std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType type) const {
-    // Temperature range
+    // Temperature (°C)
     constexpr float bmp_280_temp_min_deg_celsius = -40.0F;
     constexpr float bmp_280_temp_max_deg_celsius = 85.0F;
+    constexpr float bmp_280_temp_abs_threshold = 0.10F;
 
-    // Pressure range
+    // Pressure (Pa)
     constexpr float bmp_280_press_min_pa = 30000.0F;
     constexpr float bmp_280_press_max_pa = 110000.0F;
+    constexpr float bmp_280_press_abs_threshold = 50.0F;
 
-    // Relative Humidity range
+    // Relative Humidity (%RH)
     constexpr float bmp_280_humi_min_percent = 0.0F;
     constexpr float bmp_280_humi_max_percent = 100.0F;
+    constexpr float bmp_280_humi_abs_threshold = 0.50F;
 
     switch (type) {
     case SensorType::TEMPERATURE:
         return SensorValueRange{.min = bmp_280_temp_min_deg_celsius,
-                                .max = bmp_280_temp_max_deg_celsius};
+                                .max = bmp_280_temp_max_deg_celsius,
+                                .abs_threshold = bmp_280_temp_abs_threshold};
     case SensorType::PRESSURE:
-        return SensorValueRange{.min = bmp_280_press_min_pa, .max = bmp_280_press_max_pa};
+        return SensorValueRange{.min = bmp_280_press_min_pa,
+                                .max = bmp_280_press_max_pa,
+                                .abs_threshold = bmp_280_press_abs_threshold};
     case SensorType::RELATIVE_HUMIDITY:
         if (is_bme280_) {
             return SensorValueRange{.min = bmp_280_humi_min_percent,
-                                    .max = bmp_280_humi_max_percent};
+                                    .max = bmp_280_humi_max_percent,
+                                    .abs_threshold = bmp_280_humi_abs_threshold};
         }
     }
     return std::nullopt;

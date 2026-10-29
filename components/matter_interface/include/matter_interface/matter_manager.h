@@ -41,7 +41,17 @@ class MatterManager {
     struct Measurement {
         std::optional<uint16_t> endpoint_id;
         std::optional<SensorValueRange> range;
+        std::optional<float> last_reported_value;
+        int64_t last_report_time_us{0};
+        bool has_reported{false};
     };
+
+    template <typename Cluster, typename ConvFn>
+    static esp_err_t updateValue(std::optional<float> value,
+                                 Measurement& measurement,
+                                 ConvFn value_conv_func,
+                                 const char* type_name,
+                                 uint32_t cluster_id);
 
     PerSensorType<Measurement> measurements_{};
     Listeners listeners_;
