@@ -3,6 +3,7 @@
 
 // Provides CHIP_DEVICE_CONFIG_ENABLE_THREAD used below.
 #include <esp_matter.h>
+#include <esp_timer.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -20,7 +21,7 @@
 constexpr const char* tag = "   ***app_main***   ";
 
 // Task Configuration
-constexpr uint64_t sensor_read_delay_ms =
+constexpr int64_t sensor_read_delay_ms =
     CONFIG_SENSOR_READ_DELAY_MS; // Delay between sensor readings (in ms)
 
 constexpr uint32_t restart_delay_ms = 10000;
@@ -100,6 +101,7 @@ extern "C" void app_main() {
 
     // Sensor read loop
     while (true) {
+        const int64_t cycle_start_us = esp_timer_get_time();
         err = sensors_manager.readValues();
         if (err != ESP_OK) {
             ESP_LOGE(tag, "Failed to read sensor data: %s", esp_err_to_name(err));
@@ -122,7 +124,10 @@ extern "C" void app_main() {
             ESP_LOGE(tag, "Failed to update Matter attributes: %s", esp_err_to_name(err));
         }
 
-        // Delay for next reading
-        vTaskDelay(pdMS_TO_TICKS(sensor_read_delay_ms));
+        const int64_t cycle_duration_ms = (esp_timer_get_time() - cycle_start_us) / 1000;
+        if (sensor_read_delay_ms > cycle_duration_ms) {
+            // Delay for next reading
+            vTaskDelay(pdMS_TO_TICKS(sensor_read_delay_ms - cycle_duration_ms));
+        }
     }
 }
