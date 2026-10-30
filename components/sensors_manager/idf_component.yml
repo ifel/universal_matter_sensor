@@ -3,3 +3,5 @@ dependencies:
   idf:
     version: '>=6.1.0'
   esp-idf-lib/bmp280: '*'
+  esp-idf-lib/sht4x: '*'
+  esp-idf-lib/scd30: '*'

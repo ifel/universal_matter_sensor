@@ -5,23 +5,24 @@
 
 #include "esp_log.h"
 #include "sensors/bmp280_bme280.h"
+#include "sensors/scd30.h"
+#include "sensors/sht4x.h"
 
 constexpr const char* tag = "   ***sensors_manager***   ";
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t SensorsManager::init() {
+esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     if (initialized_) {
         ESP_LOGW(tag, "Already initialized");
         return ESP_OK;
     }
 
     // Add new sensor drivers here.
-    std::array<std::unique_ptr<Sensor>, 1> candidates = {
-        std::make_unique<Bmp280Bme280>(),
-    };
+    std::array<std::unique_ptr<Sensor>, 3> candidates = {
+        std::make_unique<Sht4x>(), std::make_unique<Bmp280Bme280>(), std::make_unique<Scd30>()};
 
     for (auto& sensor : candidates) {
-        if (sensor->init() != ESP_OK) {
+        if (sensor->init(read_interval_ms) != ESP_OK) {
             ESP_LOGD(tag, "%s sensor not found.", sensor->getModelName());
             continue;
         }
@@ -48,13 +49,13 @@ esp_err_t SensorsManager::init() {
     return ESP_OK;
 }
 
-esp_err_t SensorsManager::readValues() {
+esp_err_t SensorsManager::readValues(SensorReadings& compensations) {
     if (!initialized_) { return ESP_ERR_INVALID_STATE; }
 
     auto ret = ESP_OK;
     for (const auto& sensor : active_sensors_) {
         SensorReadings sensor_readings{};
-        const auto err = sensor->read(sensor_readings);
+        const auto err = sensor->read(sensor_readings, compensations);
         if (err != ESP_OK) { ret = err; }
         // Take only the types this sensor owns; failed reads clear them.
         for (const auto type : sensor->getTypes()) {
@@ -79,6 +80,14 @@ SensorRanges SensorsManager::getRanges() const {
         }
     }
     return ranges;
+}
+
+const char* SensorsManager::getSensorModelNameForType(const SensorType sensor_type) const {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+    if (const auto* sensor = sensors_by_type_[toIndex(sensor_type)]; sensor != nullptr) {
+        return sensor->getModelName();
+    }
+    return "Unknown";
 }
 
 bool SensorsManager::isSensorsDetected() const {

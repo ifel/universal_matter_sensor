@@ -16,11 +16,17 @@ struct SensorValueRange {
     float rel_threshold{0.0F}; // Minimum relative change as a fraction of |last_reported_value|
 };
 
-// Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH).
-// Keep RELATIVE_HUMIDITY last, or update sensor_type_count.
-enum class SensorType : uint8_t { TEMPERATURE, PRESSURE, RELATIVE_HUMIDITY };
+// Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH, Carbon Dioxide
+// Concentration, ppm). Keep CARBON_DIOXIDE_CONCENTRATION last, or update sensor_type_count.
+enum class SensorType : uint8_t {
+    TEMPERATURE,
+    PRESSURE,
+    RELATIVE_HUMIDITY,
+    CARBON_DIOXIDE_CONCENTRATION
+};
 
-inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::RELATIVE_HUMIDITY) + 1;
+inline constexpr size_t sensor_type_count =
+    static_cast<size_t>(SensorType::CARBON_DIOXIDE_CONCENTRATION) + 1;
 
 // Per-type containers indexed by SensorType.
 template <typename T> using PerSensorType = std::array<T, sensor_type_count>;

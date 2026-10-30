@@ -23,9 +23,9 @@ class Sensor {
     virtual const char* getModelName() const = 0;
     // Returns valid measurement range in °C (Temperature), Pa (Pressure), or %RH (Humidity).
     virtual std::optional<SensorValueRange> getValueRangeForType(SensorType type) const = 0;
-    virtual esp_err_t init() = 0;
+    virtual esp_err_t init(int64_t read_interval_ms) = 0;
     // Fills readings (°C, Pa, %RH) for every type in getTypes(); nullopt on failure.
-    virtual esp_err_t read(SensorReadings& readings) = 0;
+    virtual esp_err_t read(SensorReadings& readings, SensorReadings& compensations) = 0;
 };
 
 #endif // SENSOR_H

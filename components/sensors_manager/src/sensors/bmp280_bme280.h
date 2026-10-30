@@ -36,8 +36,8 @@ class Bmp280Bme280 : public Sensor {
         return is_bme280_ ? "BME280" : "BMP280";
     }
     std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
-    esp_err_t init() override;
-    esp_err_t read(SensorReadings& readings) override;
+    esp_err_t init(int64_t read_interval_ms) override;
+    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
 
   private:
     bmp280_t sensor_{};

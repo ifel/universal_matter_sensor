@@ -77,7 +77,9 @@ extern "C" void app_main() {
 
     // Initialize SensorsManager
     SensorsManager sensors_manager;
-    if (sensors_manager.init() != ESP_OK) { restartAfterFailure("Sensors initialization failed"); }
+    if (sensors_manager.init(sensor_read_delay_ms) != ESP_OK) {
+        restartAfterFailure("Sensors initialization failed");
+    }
     if (!sensors_manager.isSensorsDetected()) { restartAfterFailure("No sensors detected"); }
 
     // Initialize status LED and drive it from Matter state changes
@@ -99,10 +101,11 @@ extern "C" void app_main() {
     ESP_LOGI(tag, "Matter initialized.");
     status_led.setReady(true);
 
+    SensorReadings compensations{};
     // Sensor read loop
     while (true) {
         const int64_t cycle_start_us = esp_timer_get_time();
-        err = sensors_manager.readValues();
+        err = sensors_manager.readValues(compensations);
         if (err != ESP_OK) {
             ESP_LOGE(tag, "Failed to read sensor data: %s", esp_err_to_name(err));
         }
@@ -112,11 +115,35 @@ extern "C" void app_main() {
         const auto& temperature = readings[toIndex(SensorType::TEMPERATURE)];
         const auto& pressure = readings[toIndex(SensorType::PRESSURE)];
         const auto& relative_humidity = readings[toIndex(SensorType::RELATIVE_HUMIDITY)];
-        if (temperature.has_value()) { ESP_LOGI(tag, "Temperature = %.2f°C", *temperature); }
-        if (pressure.has_value()) { ESP_LOGI(tag, "Pressure = %.2f hPa", *pressure / 100.0F); }
-        if (relative_humidity.has_value()) {
-            ESP_LOGI(tag, "Relative Humidity = %.2f %%", *relative_humidity);
+        const auto& carbon_dioxide_concentration =
+            readings[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)];
+        if (temperature.has_value()) {
+            ESP_LOGI(tag,
+                     "Temperature = %.2f°C from %s",
+                     *temperature,
+                     sensors_manager.getSensorModelNameForType(SensorType::TEMPERATURE));
         }
+        if (pressure.has_value()) {
+            ESP_LOGI(tag,
+                     "Pressure = %.2f hPa from %s",
+                     *pressure / 100.0F,
+                     sensors_manager.getSensorModelNameForType(SensorType::PRESSURE));
+        }
+        if (relative_humidity.has_value()) {
+            ESP_LOGI(tag,
+                     "Relative Humidity = %.2f %% from %s",
+                     *relative_humidity,
+                     sensors_manager.getSensorModelNameForType(SensorType::RELATIVE_HUMIDITY));
+        }
+        if (carbon_dioxide_concentration.has_value()) {
+            ESP_LOGI(tag,
+                     "Carbon Dioxide (CO2) Concentration = %.2f ppm from %s",
+                     *carbon_dioxide_concentration,
+                     sensors_manager.getSensorModelNameForType(
+                         SensorType::CARBON_DIOXIDE_CONCENTRATION));
+        }
+
+        compensations = readings;
 
         // Update Matter attributes
         err = matter_manager.updateValues(readings);
