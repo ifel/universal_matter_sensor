@@ -23,8 +23,8 @@ set(EXTRA_COMPONENT_DIRS
         "${ESP_MATTER_PATH}/components"
         ${extra_components_dirs_append})
 
-# Creates the project named matter_bmp280
-project(matter_bmp280)
+# Creates the project named matter_sensor
+project(matter_sensor)
 
 # WARNING: This is just an example for using key for decrypting the encrypted OTA image
 # Please do not use it as is.
