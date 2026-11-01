@@ -117,6 +117,7 @@ extern "C" void app_main() {
         const auto& relative_humidity = readings[toIndex(SensorType::RELATIVE_HUMIDITY)];
         const auto& carbon_dioxide_concentration =
             readings[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)];
+        const auto& illuminance = readings[toIndex(SensorType::ILLUMINANCE)];
         if (temperature.has_value()) {
             ESP_LOGI(tag,
                      "Temperature = %.2f°C from %s",
@@ -141,6 +142,12 @@ extern "C" void app_main() {
                      *carbon_dioxide_concentration,
                      sensors_manager.getSensorModelNameForType(
                          SensorType::CARBON_DIOXIDE_CONCENTRATION));
+        }
+        if (illuminance.has_value()) {
+            ESP_LOGI(tag,
+                     "Illuminance = %.2f lux from %s",
+                     *illuminance,
+                     sensors_manager.getSensorModelNameForType(SensorType::ILLUMINANCE));
         }
 
         compensations = readings;

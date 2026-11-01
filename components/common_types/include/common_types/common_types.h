@@ -17,16 +17,16 @@ struct SensorValueRange {
 };
 
 // Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH, Carbon Dioxide
-// Concentration, ppm). Keep CARBON_DIOXIDE_CONCENTRATION last, or update sensor_type_count.
+// Concentration, ppm, Illuminance, Lux). Keep ILLUMINANCE last, or update sensor_type_count.
 enum class SensorType : uint8_t {
     TEMPERATURE,
     PRESSURE,
     RELATIVE_HUMIDITY,
-    CARBON_DIOXIDE_CONCENTRATION
+    CARBON_DIOXIDE_CONCENTRATION,
+    ILLUMINANCE
 };
 
-inline constexpr size_t sensor_type_count =
-    static_cast<size_t>(SensorType::CARBON_DIOXIDE_CONCENTRATION) + 1;
+inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::ILLUMINANCE) + 1;
 
 // Per-type containers indexed by SensorType.
 template <typename T> using PerSensorType = std::array<T, sensor_type_count>;

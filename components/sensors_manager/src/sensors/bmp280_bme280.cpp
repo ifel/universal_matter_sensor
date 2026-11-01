@@ -47,6 +47,7 @@ std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType ty
         }
         break;
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
+    case SensorType::ILLUMINANCE:
         return std::nullopt;
     }
     return std::nullopt;

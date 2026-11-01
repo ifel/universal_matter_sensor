@@ -50,6 +50,8 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
                                 .max = co2_max_percent,
                                 .abs_threshold = co2_abs_threshold,
                                 .rel_threshold = co2_rel_threshold};
+    case SensorType::ILLUMINANCE:
+        return std::nullopt;
     }
     return std::nullopt;
 }

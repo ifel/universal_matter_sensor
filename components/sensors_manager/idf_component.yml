@@ -5,3 +5,4 @@ dependencies:
   esp-idf-lib/bmp280: '*'
   esp-idf-lib/sht4x: '*'
   esp-idf-lib/scd30: '*'
+  esp-idf-lib/veml7700: '*'

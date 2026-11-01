@@ -35,6 +35,7 @@ std::optional<SensorValueRange> Sht4x::getValueRangeForType(SensorType type) con
         return SensorValueRange{
             .min = humi_min_percent, .max = humi_max_percent, .abs_threshold = humi_abs_threshold};
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
+    case SensorType::ILLUMINANCE:
         return std::nullopt;
     }
     return std::nullopt;

@@ -8,6 +8,7 @@
 
 #include <app/clusters/air-quality-server/AirQualityCluster.h>
 #include <app/clusters/concentration-measurement-server/ConcentrationMeasurementCluster.h>
+#include <app/clusters/illuminance-measurement-server/IlluminanceMeasurementCluster.h>
 #include <app/clusters/pressure-measurement-server/PressureMeasurementCluster.h>
 #include <app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.h>
 #include <app/clusters/temperature-measurement-server/TemperatureMeasurementCluster.h>
@@ -368,6 +369,18 @@ nullable<float> matterScaleCarbonDioxideConcentration(float carbon_dioxide_conce
                                 sensor_value_range);
 }
 
+nullable<uint16_t> matterScaleIlluminance(float illuminance_lux,
+                                          SensorValueRange sensor_value_range) {
+    if (!std::isfinite(illuminance_lux)) { return {}; }
+    if (illuminance_lux < 1.0F) { return {0}; } // 0 = too low to measure (0 lx)
+
+    const float clamped_lux =
+        std::clamp(illuminance_lux, std::max(1.0F, sensor_value_range.min), sensor_value_range.max);
+    const float scaled = (10000.0F * std::log10(clamped_lux)) + 1.0F;
+    constexpr auto max_matter_val = static_cast<float>(std::numeric_limits<uint16_t>::max() - 1U);
+    return {static_cast<uint16_t>(std::lround(std::clamp(scaled, 1.0F, max_matter_val)))};
+}
+
 bool shouldSkipReport(const std::optional<float>& value,
                       const SensorValueRange& range,
                       const std::optional<float>& last_reported_value,
@@ -619,6 +632,23 @@ esp_err_t updateAirQualityFromCo2(const std::optional<uint16_t> endpoint_id,
     ESP_LOGI(tag, "Updating air quality to %u", static_cast<unsigned int>(new_aq));
     return ESP_OK;
 }
+std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matter_node,
+                                                        const nullable<uint16_t> scaled_min,
+                                                        const nullable<uint16_t> scaled_max) {
+    if (!isValidScaledRange(scaled_min, scaled_max)) {
+        ESP_LOGE(tag, "Min illuminance cannot be greater than max illuminance.");
+        return std::nullopt;
+    }
+
+    esp_matter::endpoint::light_sensor::config_t config;
+    config.illuminance_measurement.min_measured_value = scaled_min;
+    config.illuminance_measurement.max_measured_value = scaled_max;
+    config.illuminance_measurement.measured_value = nullable<uint16_t>();
+
+    return finishEndpoint(esp_matter::endpoint::light_sensor::create(
+                              matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
+                          "Illuminance");
+}
 } // namespace
 
 esp_err_t
@@ -687,6 +717,19 @@ MatterManager::init(const SensorRanges& ranges) {
             matterScaleCarbonDioxideConcentration(range->max, *range));
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize carbon dioxide concentration sensor.");
+            return ESP_FAIL;
+        }
+    }
+
+    if (const auto& range = ranges[toIndex(SensorType::ILLUMINANCE)]) {
+        auto& measurement = measurements_[toIndex(SensorType::ILLUMINANCE)];
+        measurement.range = range;
+        measurement.endpoint_id =
+            createIlluminanceSensorEndpoint(matter_node,
+                                            matterScaleIlluminance(range->min, *range),
+                                            matterScaleIlluminance(range->max, *range));
+        if (!measurement.endpoint_id) {
+            ESP_LOGE(tag, "Failed to initialize illuminance sensor.");
             return ESP_FAIL;
         }
     }
@@ -835,6 +878,14 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     result = updateAirQualityFromCo2(
         measurements_[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)].endpoint_id,
         values[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)]);
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result =
+        updateValue<IlluminanceMeasurementCluster>(values[toIndex(SensorType::ILLUMINANCE)],
+                                                   measurements_[toIndex(SensorType::ILLUMINANCE)],
+                                                   matterScaleIlluminance,
+                                                   "illuminance",
+                                                   IlluminanceMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     return ret;
