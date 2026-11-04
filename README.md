@@ -17,7 +17,7 @@ When multiple sensors are connected on the I2C bus, higher-priority sensors supe
 
 ## Documentation
 
-- [**Home Assistant Commissioning & QR Code Guide**](docs/home_assistant_commissioning.md) — How to pair the device over Matter-over-Wi-Fi (via the Home Assistant Companion App or pure Wi-Fi) and how to use **ESP Launchpad** or **`esp-matter-mfg-tool`** to simplify flashing and QR code generation.
+- [**Home Assistant Commissioning & QR Code Guide**](docs/home_assistant_commissioning.md) — How to pair the device over Matter-over-Wi-Fi or Matter-over-Thread and how to use **ESP Launchpad** or **`esp-matter-mfg-tool`** to simplify flashing and QR code generation.
 - [**Matter OTA Firmware Updates Guide**](docs/ota_firmware_updates.md) — How to enable Matter OTA Requestor, build `.ota` upgrade images, and push firmware updates via Home Assistant or Espressif portals.
 - [**Sensor Reporting Thresholds & Heartbeat Throttling**](docs/sensor_reporting_thresholds.md) — How deadband filtering (`abs_threshold` + `rel_threshold`) and periodic heartbeat reporting work, with reference datasheet tables for BMP280/BME280, BMP581, TMP119, SHT45, SCD-30, and VEML7700.
 
@@ -105,10 +105,24 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sh
 
 ## Build and Flash
 
+The project provides [`CMakePresets.json`](CMakePresets.json) to build separate **development**, **production Thread**, and **production Wi-Fi** firmwares into isolated build directories (`build/default`, `build/prod`, and `build/prod_wifi`), with distinct Matter Product IDs (`0x8001` for Thread vs `0x8000` for Wi-Fi) so OTA updates never cross-flash the wrong radio variant:
+
+| CMake Preset (`--preset`) | Build Directory | Radio Transport | Configuration Files | Matter Product ID (`CONFIG_DEVICE_PRODUCT_ID`) | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`default`** | `build/default` | **Matter over Wi-Fi** | [`sdkconfig.defaults`](sdkconfig.defaults) | `0x8000` | Development configuration |
+| **`prod`** | `build/prod` | **Matter over Thread** | [`sdkconfig.defaults`](sdkconfig.defaults) + [`sdkconfig.defaults.prod_common`](sdkconfig.defaults.prod_common) + [`sdkconfig.defaults.prod`](sdkconfig.defaults.prod) | `0x8001` | Production Thread configuration (`-O2` performance optimization, OpenThread enabled, Wi-Fi disabled) |
+| **`prod_wifi`** | `build/prod_wifi` | **Matter over Wi-Fi** | [`sdkconfig.defaults`](sdkconfig.defaults) + [`sdkconfig.defaults.prod_common`](sdkconfig.defaults.prod_common) + [`sdkconfig.defaults.prod_wifi`](sdkconfig.defaults.prod_wifi) | `0x8000` | Production Wi-Fi configuration (`-O2` performance optimization, Wi-Fi enabled, Thread disabled) |
+
 ### Step 1. Set Target Chip
 
+Specify your desired preset (`default`, `prod`, or `prod_wifi`) with `idf.py --preset`:
+
 ```bash
-idf.py set-target esp32c6   # or esp32 / esp32h2
+idf.py --preset prod set-target esp32c6        # Production Matter-over-Thread
+# or:
+idf.py --preset prod_wifi set-target esp32c6   # Production Matter-over-Wi-Fi
+# or:
+idf.py --preset default set-target esp32c6     # Development (Matter-over-Wi-Fi)
 ```
 
 ### Step 2. Configure Settings (Optional)
@@ -121,36 +135,33 @@ Project settings are organized by component in `idf.py menuconfig`:
 - **`Status LED Configuration`** ([`components/status_led/Kconfig.projbuild`](components/status_led/Kconfig.projbuild)): Status LED GPIO (`15` default, `-1` to disable) and active-low polarity (`CONFIG_STATUS_LED_ACTIVE_LOW`).
 
 ```bash
-idf.py menuconfig
+idf.py --preset prod menuconfig
 ```
 
 ### Step 3. Build, Flash, and Monitor
 
-```bash
-idf.py -p <PORT> flash monitor
-```
+- **Production Matter over Thread (`prod` → `build/prod/`)**:
+
+  ```bash
+  idf.py --preset prod build
+  idf.py --preset prod -p <PORT> flash monitor
+  ```
+
+- **Production Matter over Wi-Fi (`prod_wifi` → `build/prod_wifi/`)**:
+
+  ```bash
+  idf.py --preset prod_wifi build
+  idf.py --preset prod_wifi -p <PORT> flash monitor
+  ```
+
+- **Development (`default` → `build/default/`)**:
+
+  ```bash
+  idf.py --preset default build
+  idf.py --preset default -p <PORT> flash monitor
+  ```
 
 Press `CTRL+]` to exit the serial monitor.
-
-#### Optional: Building Separate Wi-Fi and Thread Firmwares
-
-Because [`main/app_main.cpp`](main/app_main.cpp) supports both Matter-over-Wi-Fi and Matter-over-Thread via `#if CHIP_DEVICE_CONFIG_ENABLE_THREAD`, you can build both variants into separate build directories without modifying source code:
-
-- **Matter over Wi-Fi** (into `build_wifi/`):
-
-  ```bash
-  idf.py -B build_wifi -DSDKCONFIG_DEFAULTS="sdkconfig.defaults" set-target esp32c6
-  idf.py -B build_wifi build
-  idf.py -B build_wifi -p <PORT> flash monitor
-  ```
-
-- **Matter over Thread** (into `build_thread/`):
-
-  ```bash
-  idf.py -B build_thread -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32h2" set-target esp32c6
-  idf.py -B build_thread build
-  idf.py -B build_thread -p <PORT> flash monitor
-  ```
 
 Once running, follow the [**Home Assistant Commissioning Guide**](docs/home_assistant_commissioning.md) to add the sensor to Home Assistant.
 

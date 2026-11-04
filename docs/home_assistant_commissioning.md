@@ -1,15 +1,17 @@
-# Commissioning to Home Assistant (Matter over Wi-Fi)
+# Commissioning to Home Assistant (Matter over Thread & Wi-Fi)
 
-This document describes how to commission the ESP32 Matter sensor into **Home Assistant** over Wi-Fi, along with alternative options using **ESP Launchpad** and **`esp-matter-mfg-tool`** to simplify flashing and QR code generation.
+This document describes how to commission the ESP32 Matter sensor into **Home Assistant** over **Thread** (`--preset prod`) or **Wi-Fi** (`--preset prod_wifi` / `--preset default`), along with alternative options using **ESP Launchpad** and **`esp-matter-mfg-tool`** to simplify flashing and QR code generation.
 
 ---
 
 ## 1. Flash and Retrieve Onboarding Codes
 
-1. Flash the firmware and open the serial monitor (erase flash first if the board was previously commissioned):
+1. Flash the firmware for your chosen preset and open the serial monitor (erase flash first if the board was previously commissioned):
 
    ```bash
-   idf.py erase-flash flash monitor
+   idf.py --preset prod erase-flash flash monitor        # Matter over Thread (PID 0x8001)
+   # or:
+   idf.py --preset prod_wifi erase-flash flash monitor   # Matter over Wi-Fi (PID 0x8000)
    ```
 
 2. On boot, the Matter stack prints the onboarding credentials in the serial log:
@@ -140,8 +142,10 @@ If you have multiple sensors on the same network, generating unique factory part
    ```
 
    - **`-v 0xFFF1` (Vendor ID / VID)**: `0xFFF1` is the standard Connectivity Standards Alliance (CSA) **Test Vendor ID** configured in `sdkconfig` (`CONFIG_DEVICE_VENDOR_ID=0xFFF1`).
-   - **`-p 0x8000` (Product ID / PID)**: `0x8000` is the default **Test Product ID** configured in `sdkconfig` (`CONFIG_DEVICE_PRODUCT_ID=0x8000`).
-   - *(Note: `-v` and `-p` are encoded into the Matter QR code and Device Attestation Certificate, so they must match the test PAI certificate `Chip-Test-PAI-FFF1-8000-*` and any future `.ota` firmware images).*
+   - **`-p 0x8000` or `-p 0x8001` (Product ID / PID)**:
+     - Use **`-p 0x8000`** (with `Chip-Test-PAI-FFF1-8000-*` and `Chip-Test-CD-FFF1-8000.der`) for **Wi-Fi** builds (`prod_wifi` / `default`, `CONFIG_DEVICE_PRODUCT_ID=0x8000`).
+     - Use **`-p 0x8001`** (with `Chip-Test-PAI-FFF1-8001-*` and `Chip-Test-CD-FFF1-8001.der`) for **Thread** builds (`prod`, `CONFIG_DEVICE_PRODUCT_ID=0x8001`).
+   - *(Note: `-v` and `-p` are encoded into the Matter QR code and Device Attestation Certificate, so they must match the test PAI certificate and any future `.ota` firmware images).*
 
    This creates an output folder under `out/fff1_8000/<uuid>/` containing:
    - `<uuid>-partition.bin` — The NVS factory partition image.

@@ -4,56 +4,62 @@ This document explains how to configure, build, and deploy Over-The-Air (OTA) fi
 
 ---
 
-## 1. Enable Matter OTA in `sdkconfig` (Required on Base Firmware)
+## 1. Matter OTA Configuration in `sdkconfig`
 
-The project's `partitions.csv` already defines dual OTA slots (`ota_0` and `ota_1`, 1.875 MB each) and `otadata`. However, the firmware currently running on the ESP32 **must** have the Matter OTA Requestor enabled to accept updates over Matter.
+The project's `partitions.csv` defines dual OTA slots (`ota_0` and `ota_1`, 1.875 MB each) and `otadata`, and [`sdkconfig.defaults`](../sdkconfig.defaults) enables Matter OTA by default:
 
-1. Enable these options via `idf.py menuconfig` or by adding them to `sdkconfig.defaults`:
+```ini
+CONFIG_ENABLE_OTA_REQUESTOR=y
+CONFIG_CHIP_OTA_IMAGE_BUILD=y
+```
 
-   ```ini
-   CONFIG_ENABLE_OTA_REQUESTOR=y
-   CONFIG_CHIP_OTA_IMAGE_BUILD=y
-   ```
+- `CONFIG_ENABLE_OTA_REQUESTOR=y`: Initializes the Matter OTA Software Update Requestor cluster and endpoints inside `esp_matter::start()`.
+- `CONFIG_CHIP_OTA_IMAGE_BUILD=y`: Automatically wraps the compiled `.bin` binary with a Matter OTA header to produce `matter_sensor-ota.bin` during `idf.py build`. *(Note: if the `.ota` image already exists in the build directory, remove it before rebuilding or generate it manually below).*
 
-   - `CONFIG_ENABLE_OTA_REQUESTOR=y`: Initializes the Matter OTA Software Update Requestor cluster and endpoints inside `esp_matter::start()`.
-   - `CONFIG_CHIP_OTA_IMAGE_BUILD=y`: Automatically wraps the compiled `.bin` binary with a Matter OTA header to produce a `.ota` file during `idf.py build`. Note, if OTA image with this version exists, it will not be re-created, either remove it, or build manually
-   (see below).
-2. Build and flash this initial firmware (`v1`, `PROJECT_VER_NUMBER 1` in `CMakeLists.txt`) over USB once.
+### Separate Product IDs for Thread (`0x8001`) vs Wi-Fi (`0x8000`)
+
+To prevent Home Assistant from accidentally pushing a Wi-Fi OTA image to a Thread device (or vice versa), [`CMakePresets.json`](../CMakePresets.json) assigns a distinct `CONFIG_DEVICE_PRODUCT_ID` to each transport:
+
+| CMake Preset | Transport | Config File | Vendor ID (`VID`) | Product ID (`PID`) | OTA Image Path |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`prod`** | **Matter over Thread** | [`sdkconfig.defaults.prod`](../sdkconfig.defaults.prod) | `0xFFF1` | **`0x8001`** | `build/prod/matter_sensor-ota.bin` |
+| **`prod_wifi`** | **Matter over Wi-Fi** | [`sdkconfig.defaults.prod_wifi`](../sdkconfig.defaults.prod_wifi) | `0xFFF1` | **`0x8000`** | `build/prod_wifi/matter_sensor-ota.bin` |
+| **`default`** | **Matter over Wi-Fi** *(dev)* | [`sdkconfig.defaults`](../sdkconfig.defaults) | `0xFFF1` | **`0x8000`** | `build/default/matter_sensor-ota.bin` |
 
 ---
 
-## 2. Build a New OTA Firmware Image (`v2`)
+## 2. Build a New OTA Firmware Image
 
-Matter requires the new image's software version number to be **strictly higher** than the currently running version, and the Vendor ID (`0xFFF1`) and Product ID (`0x8000`) to match.
+Matter requires the new image's `PROJECT_VER_NUMBER` to be **strictly higher** than the currently running version, and both the Vendor ID (`0xFFF1`) and Product ID (`0x8001` for Thread or `0x8000` for Wi-Fi) to match the running firmware.
 
-1. Increment the version in `CMakeLists.txt`:
+1. Increment the version in [`CMakeLists.txt`](../CMakeLists.txt):
 
    ```cmake
-   set(PROJECT_VER "2.0")
-   set(PROJECT_VER_NUMBER 2)
+   set(PROJECT_VER "5.4")
+   set(PROJECT_VER_NUMBER 9)
    ```
 
-   *(If `CONFIG_DEVICE_SOFTWARE_VERSION_NUMBER` is set in `sdkconfig` under `Component config → CHIP Device Layer → Device Identification Options`, increment it there as well).*
-2. Build the project:
+   *(If `CONFIG_DEVICE_SOFTWARE_VERSION_NUMBER` is overridden in `sdkconfig`, increment it there as well).*
+2. Build the desired preset (`prod` for Thread or `prod_wifi` for Wi-Fi):
 
    ```bash
-   idf.py build
+   idf.py --preset prod build        # outputs build/prod/matter_sensor-ota.bin (PID 0x8001)
+   # or:
+   idf.py --preset prod_wifi build   # outputs build/prod_wifi/matter_sensor-ota.bin (PID 0x8000)
    ```
 
-The build outputs **`build/matter_sensor-ota.bin`**.
-3. To see information about the ota image run:
+3. Inspect the generated OTA image header to verify the Vendor ID, Product ID, and software version number:
 
-```bash
-$ESP_MATTER_PATH/connectedhomeip/connectedhomeip/src/app/ota_image_tool.py show build/matter_sensor-ota.bin
-```
+   ```bash
+   $ESP_MATTER_PATH/connectedhomeip/connectedhomeip/src/app/ota_image_tool.py show build/prod/matter_sensor-ota.bin
+   ```
 
-You will see the header information, including the Vendor ID, Product ID, and the software version number, confirming that the image is ready for distribution.
-4. [Optional] You can also generate it manually from `build/matter_sensor.bin` using CHIP's tool, but if OTA is   configured, `idf.py build` should generate it.:
+4. *(Optional)* You can also generate the OTA image manually from `matter_sensor.bin` using CHIP's `ota_image_tool.py` (use `-p 0x8001` for Thread or `-p 0x8000` for Wi-Fi):
 
    ```bash
    $ESP_MATTER_PATH/connectedhomeip/connectedhomeip/src/app/ota_image_tool.py create \
-     -v 0xFFF1 -p 0x8000 -vn 2 -vs "2.0" -da sha256 \
-     build/matter_sensor.bin build/matter_sensor-ota.bin
+     -v 0xFFF1 -p 0x8001 -vn 9 -vs "5.4" -da sha256 \
+     build/prod/matter_sensor.bin build/prod/matter_sensor-ota.bin
    ```
 
 ---

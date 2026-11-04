@@ -1,0 +1,34 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "binaryDir": "build/default",
+            "displayName": "Default (development)",
+            "description": "Development configuration",
+            "cacheVariables": {
+                "SDKCONFIG": "./build/default/sdkconfig"
+            }
+        },
+        {
+            "name": "prod",
+            "binaryDir": "build/prod",
+            "displayName": "Prod",
+            "description": "Production configuration with Matter",
+            "cacheVariables": {
+                "SDKCONFIG_DEFAULTS": "sdkconfig.defaults.prod_common;sdkconfig.defaults.prod",
+                "SDKCONFIG": "./build/prod/sdkconfig"
+            }
+        },
+        {
+            "name": "prod_wifi",
+            "binaryDir": "build/prod_wifi",
+            "displayName": "Prod WiFi",
+            "description": "Production configuration with WiFi",
+            "cacheVariables": {
+                "SDKCONFIG_DEFAULTS": "sdkconfig.defaults.prod_common;sdkconfig.defaults.prod_wifi",
+                "SDKCONFIG": "./build/prod_wifi/sdkconfig"
+            }
+        }
+    ]
+}

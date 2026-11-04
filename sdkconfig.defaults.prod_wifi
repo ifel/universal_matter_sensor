@@ -1,0 +1,4 @@
+# WIFI enabled by default, and Thread disabled
+
+# Set product ID differ from Thread
+CONFIG_DEVICE_PRODUCT_ID=0x8000
