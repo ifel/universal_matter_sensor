@@ -12,7 +12,7 @@ It supports the following I2C sensors (individually or combined on the same I2C 
 4. **ENS160**: Equivalent CO₂ (eCO₂), TVOC (`ppb`), and Air Quality (from the sensor's UBA index)
 5. **VEML7700**: Illuminance (Ambient Light in `lx`)
 
-When multiple sensors are connected on the I2C bus, higher-priority sensors supersede lower-priority ones for any overlapping measurement types (`SHT4x` > `BME280 / BMP280` > `SCD30` > `ENS160`), while unique measurements (**Pressure** from `BMP280 / BME280`, **CO₂ & Air Quality** from `SCD30` (or `ENS160` without an `SCD30`), **TVOC** from `ENS160`, **Illuminance** from `VEML7700`, or **Relative Humidity** from `SCD30` when paired only with a `BMP280`) are still taken from the sensor that provides them. Additionally, when a pressure sensor (`BMP280 / BME280`) is present alongside an `SCD30`, barometric pressure readings are used to dynamically compensate `SCD30` CO₂ measurements, and temperature/humidity readings compensate `ENS160` measurements.
+When multiple sensors are connected on the I2C bus, higher-priority sensors supersede lower-priority ones for any overlapping measurement types (`SHT4x` > `BME280 / BMP280` > `SCD30` > `ENS160`), while unique measurements (**Pressure** from `BMP280 / BME280`, **CO₂** from `SCD30` (or `ENS160` without an `SCD30`), **TVOC** from `ENS160`, **Illuminance** from `VEML7700`, or **Relative Humidity** from `SCD30` when paired only with a `BMP280`) are still taken from the sensor that provides them. Additionally, when a pressure sensor (`BMP280 / BME280`) is present alongside an `SCD30`, barometric pressure readings are used to dynamically compensate `SCD30` CO₂ measurements, and temperature/humidity readings compensate `ENS160` measurements. **Air Quality** is not owned by a single sensor: every active sensor that provides CO₂ or TVOC and reports an air quality level contributes, and the **worst** level is published (`SCD30` derives it from CO₂, `ENS160` reports its UBA index).
 
 ---
 
@@ -75,7 +75,7 @@ Connect one or more supported sensor modules (**SHT4x**, **BME280 / BMP280**, **
 
 ### Auto-Detection & Sensor Priority
 
-At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sht4x` → `Bmp280Bme280` → `Scd30` → `Ens160` → `Veml7700`**) and assigns each `SensorType` to the first detected sensor that provides it. `MatterManager` then dynamically creates only the Matter endpoints/clusters for the detected measurement types. CO₂, TVOC, and Air Quality are independent measurement types that share a single **Air Quality Sensor** endpoint; each cluster on it is populated only when a sensor provides that type:
+At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sht4x` → `Bmp280Bme280` → `Scd30` → `Ens160` → `Veml7700`**) and assigns each `SensorType` to the first detected sensor that provides it. `MatterManager` then dynamically creates only the Matter endpoints/clusters for the detected measurement types. CO₂, TVOC, and Air Quality share a single **Air Quality Sensor** endpoint; each cluster on it is populated only when a sensor provides that type. Air Quality is the worst level reported by the sensors that provide CO₂ or TVOC:
 
 | Connected Sensor(s) | Temperature (`0x0402`) | Relative Humidity (`0x0405`) | Pressure (`0x0403`) | CO₂ (`0x040D`) | TVOC (`0x042E`) | Air Quality (`0x005B`) | Illuminance (`0x0400`) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -91,8 +91,8 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sh
 | **SHT4x + ENS160** | **SHT4x** | **SHT4x** | *Not created* | **ENS160** *(T/RH-compensated)* | **ENS160** *(T/RH-compensated)* | **ENS160** | *Not created* |
 | **BMP280 + SCD30** | **BMP280** *(supersedes SCD30)* | **SCD30** | **BMP280** | **SCD30** *(pressure-compensated)* | *Not created* | **SCD30** | *Not created* |
 | **BME280 + SCD30** | **BME280** *(supersedes SCD30)* | **BME280** *(supersedes SCD30)* | **BME280** | **SCD30** *(pressure-compensated)* | *Not created* | **SCD30** | *Not created* |
-| **SCD30 + ENS160** | **SCD30** | **SCD30** | *Not created* | **SCD30** *(supersedes ENS160)* | **ENS160** | **SCD30** *(supersedes ENS160)* | *Not created* |
-| **SHT4x + BMP280 / BME280 + SCD30 + ENS160 + VEML7700** | **SHT4x** *(supersedes all)* | **SHT4x** *(supersedes all)* | **BMP280 / BME280** | **SCD30** *(pressure-compensated)* | **ENS160** | **SCD30** | **VEML7700** |
+| **SCD30 + ENS160** | **SCD30** | **SCD30** | *Not created* | **SCD30** *(supersedes ENS160)* | **ENS160** | Worst of **SCD30** & **ENS160** | *Not created* |
+| **SHT4x + BMP280 / BME280 + SCD30 + ENS160 + VEML7700** | **SHT4x** *(supersedes all)* | **SHT4x** *(supersedes all)* | **BMP280 / BME280** | **SCD30** *(pressure-compensated)* | **ENS160** | Worst of **SCD30** & **ENS160** | **VEML7700** |
 
 > **Onboard Status LED**: Driven by the `status_led` component, the onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
 

@@ -31,7 +31,14 @@ enum class SensorType : uint8_t {
 
 inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::AIR_QUALITY) + 1;
 
-// AIR_QUALITY reading values; numerically equal to Matter's AirQualityEnum.
+// Types published on the Matter Air Quality Sensor endpoint. AIR_QUALITY is not owned by a single
+// sensor: it is the worst value reported by the sensors owning any of these types.
+constexpr bool isAirQualityEndpointType(SensorType type) {
+    return type == SensorType::CARBON_DIOXIDE_CONCENTRATION ||
+           type == SensorType::TVOC_CONCENTRATION;
+}
+
+// AIR_QUALITY reading values (higher is worse); numerically equal to Matter's AirQualityEnum.
 enum class AirQualityLevel : uint8_t {
     UNKNOWN,
     GOOD,

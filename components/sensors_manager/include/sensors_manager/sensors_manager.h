@@ -2,6 +2,7 @@
 #define SENSORS_MANAGER_H
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common_types/common_types.h"
@@ -33,7 +34,9 @@ class SensorsManager {
 
   private:
     std::vector<std::unique_ptr<Sensor>> active_sensors_;
-    PerSensorType<Sensor*> sensors_by_type_{};
+    PerSensorType<Sensor*> sensors_by_type_{}; // owner per type; AIR_QUALITY is never owned
+    std::vector<Sensor*> air_quality_sensors_; // AIR_QUALITY contributors (worst value wins)
+    std::string air_quality_model_names_;
     SensorReadings readings_{};
     bool initialized_ = false;
 };
