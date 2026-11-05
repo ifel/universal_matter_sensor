@@ -29,7 +29,7 @@ dependencies:
     component_hash: 689853bb8993434f9556af0f2816e808bf77b5d22100144b21f3519993daf237
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32
@@ -51,7 +51,7 @@ dependencies:
       require: private
       version: '*'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32
@@ -205,6 +205,8 @@ dependencies:
     version: 6.1.0
 direct_dependencies:
 - esp-idf-lib/bmp280
+- esp-idf-lib/esp_idf_lib_helpers
+- esp-idf-lib/i2cdev
 - esp-idf-lib/scd30
 - esp-idf-lib/sht4x
 - esp-idf-lib/veml7700
@@ -214,6 +216,6 @@ direct_dependencies:
 - espressif/esp_secure_cert_mgr
 - espressif/mdns
 - idf
-manifest_hash: 2c3e8f4ba5f4299dc367a97b4dd9c3f1a7cb82e57683a76f1e62cb99dcef4445
+manifest_hash: 258fd5c92ff77a1a38cc7a92b4c77c6b1a85b414b75cd9379fe8888b50068172
 target: esp32c6
 version: 3.0.0

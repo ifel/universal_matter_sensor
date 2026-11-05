@@ -36,6 +36,8 @@ std::optional<SensorValueRange> Sht4x::getValueRangeForType(SensorType type) con
             .min = humi_min_percent, .max = humi_max_percent, .abs_threshold = humi_abs_threshold};
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
     case SensorType::ILLUMINANCE:
+    case SensorType::TVOC_CONCENTRATION:
+    case SensorType::AIR_QUALITY:
         return std::nullopt;
     }
     return std::nullopt;
@@ -78,15 +80,15 @@ esp_err_t Sht4x::read(SensorReadings& readings, SensorReadings& /*compensations*
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
 
-    readings[toIndex(SensorType::TEMPERATURE)] = std::nullopt;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] = std::nullopt;
+    at<SensorType::TEMPERATURE>(readings) = std::nullopt;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) = std::nullopt;
 
     float temperature = 0.0F;
     float relative_humidity = 0.0F;
     const auto ret = sht4x_measure(&sensor_, &temperature, &relative_humidity);
     ESP_RETURN_ON_ERROR(ret, tag, "Failed to read sensor values: %s", esp_err_to_name(ret));
 
-    readings[toIndex(SensorType::TEMPERATURE)] = temperature;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] = relative_humidity;
+    at<SensorType::TEMPERATURE>(readings) = temperature;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) = relative_humidity;
     return ESP_OK;
 }

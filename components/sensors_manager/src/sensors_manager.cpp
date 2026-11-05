@@ -5,6 +5,7 @@
 
 #include "esp_log.h"
 #include "sensors/bmp280_bme280.h"
+#include "sensors/ens160.h"
 #include "sensors/scd30.h"
 #include "sensors/sht4x.h"
 #include "sensors/veml7700.h"
@@ -19,9 +20,10 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     }
 
     // Add new sensor drivers here.
-    std::array<std::unique_ptr<Sensor>, 4> candidates = {std::make_unique<Sht4x>(),
+    std::array<std::unique_ptr<Sensor>, 5> candidates = {std::make_unique<Sht4x>(),
                                                          std::make_unique<Bmp280Bme280>(),
                                                          std::make_unique<Scd30>(),
+                                                         std::make_unique<Ens160>(),
                                                          std::make_unique<Veml7700>()};
 
     for (auto& sensor : candidates) {

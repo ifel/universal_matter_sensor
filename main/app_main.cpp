@@ -112,12 +112,14 @@ extern "C" void app_main() {
 
         // Publish readings even on failure so unavailable values become null in Matter
         const auto& readings = sensors_manager.getReadings();
-        const auto& temperature = readings[toIndex(SensorType::TEMPERATURE)];
-        const auto& pressure = readings[toIndex(SensorType::PRESSURE)];
-        const auto& relative_humidity = readings[toIndex(SensorType::RELATIVE_HUMIDITY)];
+        const auto& temperature = at<SensorType::TEMPERATURE>(readings);
+        const auto& pressure = at<SensorType::PRESSURE>(readings);
+        const auto& relative_humidity = at<SensorType::RELATIVE_HUMIDITY>(readings);
         const auto& carbon_dioxide_concentration =
-            readings[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)];
-        const auto& illuminance = readings[toIndex(SensorType::ILLUMINANCE)];
+            at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(readings);
+        const auto& illuminance = at<SensorType::ILLUMINANCE>(readings);
+        const auto& tvoc_concentration = at<SensorType::TVOC_CONCENTRATION>(readings);
+        const auto& air_quality = at<SensorType::AIR_QUALITY>(readings);
         if (temperature.has_value()) {
             ESP_LOGI(tag,
                      "Temperature = %.2f°C from %s",
@@ -148,6 +150,18 @@ extern "C" void app_main() {
                      "Illuminance = %.2f lux from %s",
                      *illuminance,
                      sensors_manager.getSensorModelNameForType(SensorType::ILLUMINANCE));
+        }
+        if (tvoc_concentration.has_value()) {
+            ESP_LOGI(tag,
+                     "TVOC Concentration = %.0f ppb from %s",
+                     *tvoc_concentration,
+                     sensors_manager.getSensorModelNameForType(SensorType::TVOC_CONCENTRATION));
+        }
+        if (air_quality.has_value()) {
+            ESP_LOGI(tag,
+                     "Air Quality = %.0f (1 good .. 6 extremely poor) from %s",
+                     *air_quality,
+                     sensors_manager.getSensorModelNameForType(SensorType::AIR_QUALITY));
         }
 
         compensations = readings;

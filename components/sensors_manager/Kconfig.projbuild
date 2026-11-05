@@ -38,4 +38,23 @@ menu "Sensors Configuration"
         default 0x77 if BMP280_I2C_ADDRESS_0X77
         default 0x76 if BMP280_I2C_ADDRESS_0X76
 
+    choice ENS160_I2C_ADDRESS_CHOICE
+        prompt "ENS160 I2C Address"
+        default ENS160_I2C_ADDRESS_0X53
+        help
+            Select the I2C address of the ENS160 sensor.
+            Most ENS160 modules default to 0x53 (ADDR pulled high).
+            Modules with ADDR connected to GND use 0x52.
+
+        config ENS160_I2C_ADDRESS_0X53
+            bool "0x53 (ADDR high / module default)"
+        config ENS160_I2C_ADDRESS_0X52
+            bool "0x52 (ADDR connected to GND)"
+    endchoice
+
+    config ENS160_I2C_ADDRESS
+        hex
+        default 0x53 if ENS160_I2C_ADDRESS_0X53
+        default 0x52 if ENS160_I2C_ADDRESS_0X52
+
 endmenu

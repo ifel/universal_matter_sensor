@@ -74,6 +74,9 @@ $$\text{threshold} \approx \max\!\big(2.5 \times \text{Repeatability}_{3\sigma},
 | **Sensirion SCD-30** | **CO₂** | `400 .. 40,000 ppm` / *(cal. `400..10,000`)* | `1 ppm` | **`±10 ppm`** ($3\sigma$ at `400–2,000 ppm`, scales with `[CO₂]`) | **`±(30 ppm + 3% of reading)`** | `1 ppm` | **`20 ppm`** | **`0.02` (`2%`)** *(or `3%`)* |
 | **Sensirion SCD-30** | **Temperature** *(onboard SHT31)* | `-40 .. +70 °C` | `0.01 °C` | **`0.10 °C`** ($3\sigma$, affected by NDIR lamp heating) | `±(0.4 °C + 0.023 × (T − 25 °C))` | `0.01 °C` | **`0.20 °C`** | **`0.0`** |
 | **Sensirion SCD-30** | **Humidity** *(onboard SHT31)* | `0 .. 100 %RH` | `0.01 %RH` | **`0.20 %RH`** ($3\sigma$) | `±3.0 %RH` | `0.01 %RH` | **`0.50 %RH`** | **`0.0`** |
+| **ScioSense ENS160** | **eCO₂** | `400 .. 65,000 ppm` | `1 ppm` | Algorithm output, updated every `1 s`; step changes of `~10–20 ppm` | Estimated from VOCs (not NDIR); relative trend only | `1 ppm` | **`20 ppm`** | **`0.02` (`2%`)** |
+| **ScioSense ENS160** | **TVOC** | `0 .. 65,000 ppb` | `1 ppb` | Algorithm output, updated every `1 s` | Relative trend; baseline drifts during the first hour of operation | `1 ppb` | **`10 ppb`** | **`0.05` (`5%`)** |
+| **ScioSense ENS160** | **Air Quality** *(UBA index 1–5)* | `1 .. 5` (mapped to Matter `Good .. VeryPoor`) | `1` level | — | — | `1` level | **`1` level** | **`0.0`** |
 | **Vishay VEML7700** | **Illuminance** | `0 .. 120,000 lx` | `0.0036 lx` (high gain) to `1.84 lx` (low gain) | `±1–2 LSB` dark noise + `~1–2%` artificial light flicker | `±10% .. ±15%` | Logarithmic (`10000 × log10(lx) + 1`) | **`1.0 lx`** | **`0.03` (`3%`)** to **`0.05` (`5%`)** |
 
 > **¹ Note on Pressure (`50 Pa` vs `100 Pa`):**

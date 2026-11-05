@@ -24,6 +24,7 @@ class Scd30 : public Sensor {
             SensorType::TEMPERATURE,
             SensorType::RELATIVE_HUMIDITY,
             SensorType::CARBON_DIOXIDE_CONCENTRATION,
+            SensorType::AIR_QUALITY,
         };
         return std::span<const SensorType>{k_types};
     }

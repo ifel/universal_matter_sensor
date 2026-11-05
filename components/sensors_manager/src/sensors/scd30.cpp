@@ -11,6 +11,18 @@ constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
 constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
 constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
 
+namespace {
+AirQualityLevel co2ToAirQuality(float co2_ppm) {
+    if (!std::isfinite(co2_ppm)) { return AirQualityLevel::UNKNOWN; }
+    if (co2_ppm < 800.0F) { return AirQualityLevel::GOOD; }
+    if (co2_ppm < 1000.0F) { return AirQualityLevel::FAIR; }
+    if (co2_ppm < 1500.0F) { return AirQualityLevel::MODERATE; }
+    if (co2_ppm < 2000.0F) { return AirQualityLevel::POOR; }
+    if (co2_ppm < 5000.0F) { return AirQualityLevel::VERY_POOR; }
+    return AirQualityLevel::EXTREMELY_POOR;
+}
+} // namespace
+
 Scd30::~Scd30() {
     if (initialized_) {
         scd30_stop_continuous_measurement(&sensor_);
@@ -35,6 +47,11 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
     constexpr float co2_abs_threshold = 20.0F;
     constexpr float co2_rel_threshold = 0.02F;
 
+    // Air quality derived from CO2 (AirQualityLevel)
+    constexpr auto aq_min_level = static_cast<float>(AirQualityLevel::GOOD);
+    constexpr auto aq_max_level = static_cast<float>(AirQualityLevel::EXTREMELY_POOR);
+    constexpr float aq_abs_threshold = 1.0F;
+
     switch (type) {
     case SensorType::TEMPERATURE:
         return SensorValueRange{.min = temp_min_deg_celsius,
@@ -50,7 +67,11 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
                                 .max = co2_max_percent,
                                 .abs_threshold = co2_abs_threshold,
                                 .rel_threshold = co2_rel_threshold};
+    case SensorType::AIR_QUALITY:
+        return SensorValueRange{
+            .min = aq_min_level, .max = aq_max_level, .abs_threshold = aq_abs_threshold};
     case SensorType::ILLUMINANCE:
+    case SensorType::TVOC_CONCENTRATION:
         return std::nullopt;
     }
     return std::nullopt;
@@ -104,13 +125,13 @@ esp_err_t Scd30::read(SensorReadings& readings, SensorReadings& compensations) {
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
 
     auto ret = ESP_OK;
-    readings[toIndex(SensorType::TEMPERATURE)] = std::nullopt;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] = std::nullopt;
-    readings[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)] = std::nullopt;
+    at<SensorType::TEMPERATURE>(readings) = std::nullopt;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) = std::nullopt;
+    at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(readings) = std::nullopt;
+    at<SensorType::AIR_QUALITY>(readings) = std::nullopt;
 
     uint16_t pressure_comp = 0;
-    if (const auto new_pressure_comp = compensations[toIndex(SensorType::PRESSURE)];
-        new_pressure_comp) {
+    if (const auto new_pressure_comp = at<SensorType::PRESSURE>(compensations); new_pressure_comp) {
         pressure_comp = (uint16_t)std::roundf(new_pressure_comp.value() / 100.0F);
     }
     if (pressure_comp != pressure_comp_) {
@@ -139,9 +160,12 @@ esp_err_t Scd30::read(SensorReadings& readings, SensorReadings& compensations) {
     ret = scd30_read_measurement(&sensor_, &co2, &temperature, &relative_humidity);
     ESP_RETURN_ON_ERROR(ret, tag, "Failed to read sensor values: %s", esp_err_to_name(ret));
 
-    readings[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)] = co2;
-    readings[toIndex(SensorType::TEMPERATURE)] = temperature;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] = relative_humidity;
+    at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(readings) = co2;
+    if (const auto air_quality = co2ToAirQuality(co2); air_quality != AirQualityLevel::UNKNOWN) {
+        at<SensorType::AIR_QUALITY>(readings) = static_cast<float>(air_quality);
+    }
+    at<SensorType::TEMPERATURE>(readings) = temperature;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) = relative_humidity;
 
     return ESP_OK;
 }

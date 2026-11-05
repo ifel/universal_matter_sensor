@@ -48,6 +48,8 @@ std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType ty
         break;
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
     case SensorType::ILLUMINANCE:
+    case SensorType::TVOC_CONCENTRATION:
+    case SensorType::AIR_QUALITY:
         return std::nullopt;
     }
     return std::nullopt;
@@ -96,9 +98,9 @@ esp_err_t Bmp280Bme280::read(SensorReadings& readings, SensorReadings& /*compens
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
 
-    readings[toIndex(SensorType::TEMPERATURE)] = std::nullopt;
-    readings[toIndex(SensorType::PRESSURE)] = std::nullopt;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] = std::nullopt;
+    at<SensorType::TEMPERATURE>(readings) = std::nullopt;
+    at<SensorType::PRESSURE>(readings) = std::nullopt;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) = std::nullopt;
     float temperature = 0.0F;
     float pressure = 0.0F;
     float relative_humidity = 0.0F;
@@ -106,9 +108,9 @@ esp_err_t Bmp280Bme280::read(SensorReadings& readings, SensorReadings& /*compens
         &sensor_, &temperature, &pressure, is_bme280_ ? &relative_humidity : nullptr);
     ESP_RETURN_ON_ERROR(ret, tag, "Failed to read sensor values: %s", esp_err_to_name(ret));
 
-    readings[toIndex(SensorType::TEMPERATURE)] = temperature;
-    readings[toIndex(SensorType::PRESSURE)] = pressure;
-    readings[toIndex(SensorType::RELATIVE_HUMIDITY)] =
+    at<SensorType::TEMPERATURE>(readings) = temperature;
+    at<SensorType::PRESSURE>(readings) = pressure;
+    at<SensorType::RELATIVE_HUMIDITY>(readings) =
         is_bme280_ ? std::optional<float>(relative_humidity) : std::nullopt;
     return ESP_OK;
 }

@@ -47,6 +47,7 @@ constexpr float matter_temp_scale = 100.0F;
 constexpr float matter_relative_humidity_scale = 100.0F;
 constexpr float matter_pressure_scale = 0.01F; // Scale - 10.0F and PA -> kPa => 10/1000
 constexpr float matter_carbon_dioxide_concentration_scale = 1.0F;
+constexpr float matter_tvoc_concentration_scale = 1.0F;
 constexpr int64_t report_max_interval_us =
     static_cast<int64_t>(CONFIG_MATTER_REPORT_MAX_INTERVAL_S) * 1'000'000LL;
 
@@ -369,6 +370,12 @@ nullable<float> matterScaleCarbonDioxideConcentration(float carbon_dioxide_conce
                                 sensor_value_range);
 }
 
+nullable<float> matterScaleTvocConcentration(float tvoc_concentration_ppb,
+                                             SensorValueRange sensor_value_range) {
+    return scaleToMatter<float>(
+        tvoc_concentration_ppb, matter_tvoc_concentration_scale, sensor_value_range);
+}
+
 nullable<uint16_t> matterScaleIlluminance(float illuminance_lux,
                                           SensorValueRange sensor_value_range) {
     if (!std::isfinite(illuminance_lux)) { return {}; }
@@ -484,64 +491,133 @@ std::optional<uint16_t> createRelativeHumiditySensorEndpoint(esp_matter::node_t*
 }
 
 // esp-matter does not yet register ConcentrationMeasurementCluster in data_model::provider.
-chip::app::LazyRegisteredServerCluster<ConcentrationMeasurement::ConcentrationMeasurementCluster>
-    s_co2_server_cluster; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DataModel::Nullable<float> s_co2_min_measured;
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DataModel::Nullable<float> s_co2_max_measured;
+// One instantiation per concentration cluster id, since the init/shutdown callbacks carry no
+// context.
+template <uint32_t ClusterId, ConcentrationMeasurement::MeasurementUnitEnum Unit>
+struct ConcentrationServerCluster {
+    static constexpr auto unit = Unit;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static inline chip::app::LazyRegisteredServerCluster<
+        ConcentrationMeasurement::ConcentrationMeasurementCluster>
+        server_cluster;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static inline DataModel::Nullable<float> min_measured;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static inline DataModel::Nullable<float> max_measured;
 
-void co2ClusterServerInitCallback(chip::EndpointId endpoint_id) {
-    if (!s_co2_server_cluster.IsConstructed()) {
-        const ConcentrationMeasurement::ConcentrationMeasurementCluster::Config config{
-            .clusterId = CarbonDioxideConcentrationMeasurement::Id,
-            .features = chip::BitFlags<ConcentrationMeasurement::Feature>(
-                ConcentrationMeasurement::Feature::kNumericMeasurement),
-            .medium = ConcentrationMeasurement::MeasurementMediumEnum::kAir,
-            .unit = ConcentrationMeasurement::MeasurementUnitEnum::kPpm,
-            .minMeasured = s_co2_min_measured,
-            .maxMeasured = s_co2_max_measured,
-        };
-        s_co2_server_cluster.Create(endpoint_id, config);
+    static void initCallback(chip::EndpointId endpoint_id) {
+        if (!server_cluster.IsConstructed()) {
+            const ConcentrationMeasurement::ConcentrationMeasurementCluster::Config config{
+                .clusterId = ClusterId,
+                .features = chip::BitFlags<ConcentrationMeasurement::Feature>(
+                    ConcentrationMeasurement::Feature::kNumericMeasurement),
+                .medium = ConcentrationMeasurement::MeasurementMediumEnum::kAir,
+                .unit = Unit,
+                .minMeasured = min_measured,
+                .maxMeasured = max_measured,
+            };
+            server_cluster.Create(endpoint_id, config);
+        }
+        const CHIP_ERROR err = esp_matter::data_model::provider::get_instance().registry().Register(
+            server_cluster.Registration());
+        if (err != CHIP_NO_ERROR) {
+            ESP_LOGE(tag,
+                     "Concentration cluster 0x%04lx register failed ep %u: %s",
+                     static_cast<unsigned long>(ClusterId),
+                     endpoint_id,
+                     err.Format());
+        }
     }
-    const CHIP_ERROR err = esp_matter::data_model::provider::get_instance().registry().Register(
-        s_co2_server_cluster.Registration());
-    if (err != CHIP_NO_ERROR) {
-        ESP_LOGE(tag, "CO2 cluster register failed ep %u: %s", endpoint_id, err.Format());
+
+    static void shutdownCallback(chip::EndpointId /*endpoint_id*/,
+                                 ClusterShutdownType shutdown_type) {
+        if (!server_cluster.IsConstructed()) { return; }
+        const CHIP_ERROR err =
+            esp_matter::data_model::provider::get_instance().registry().Unregister(
+                &server_cluster.Cluster(), shutdown_type);
+        if (err != CHIP_NO_ERROR) {
+            ESP_LOGE(tag,
+                     "Concentration cluster 0x%04lx unregister failed: %s",
+                     static_cast<unsigned long>(ClusterId),
+                     err.Format());
+        }
+        if (shutdown_type == ClusterShutdownType::kPermanentRemove) { server_cluster.Destroy(); }
     }
-}
+};
 
-void co2ClusterServerShutdownCallback(chip::EndpointId /*endpoint_id*/,
-                                      ClusterShutdownType shutdown_type) {
-    if (!s_co2_server_cluster.IsConstructed()) { return; }
-    const CHIP_ERROR err = esp_matter::data_model::provider::get_instance().registry().Unregister(
-        &s_co2_server_cluster.Cluster(), shutdown_type);
-    if (err != CHIP_NO_ERROR) { ESP_LOGE(tag, "CO2 cluster unregister failed: %s", err.Format()); }
-    if (shutdown_type == ClusterShutdownType::kPermanentRemove) { s_co2_server_cluster.Destroy(); }
-}
+using Co2ServerCluster =
+    ConcentrationServerCluster<CarbonDioxideConcentrationMeasurement::Id,
+                               ConcentrationMeasurement::MeasurementUnitEnum::kPpm>;
+using TvocServerCluster =
+    ConcentrationServerCluster<TotalVolatileOrganicCompoundsConcentrationMeasurement::Id,
+                               ConcentrationMeasurement::MeasurementUnitEnum::kPpb>;
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-std::optional<uint16_t> createCarbonDioxideConcentrationEndpoint(esp_matter::node_t* matter_node,
-                                                                 const nullable<float> scaled_min,
-                                                                 const nullable<float> scaled_max) {
-    static constexpr const char* type_name = "Carbon dioxide concentration";
+using ConcentrationClusterCreateFn =
+    esp_matter::cluster_t* (*)(esp_matter::endpoint_t*,
+                               esp_matter::cluster::concentration_measurement::config_t*,
+                               uint8_t);
 
+// Attaches a numeric concentration measurement cluster to an Air Quality Sensor endpoint.
+template <typename ServerCluster>
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+bool attachConcentrationCluster(esp_matter::endpoint_t* endpoint,
+                                ConcentrationClusterCreateFn create_fn,
+                                const nullable<float> scaled_min,
+                                const nullable<float> scaled_max,
+                                const char* type_name) {
     if (!isValidScaledRange(scaled_min, scaled_max)) {
-        ESP_LOGE(tag,
-                 "Min carbon dioxide concentration cannot be greater than max carbon dioxide "
-                 "concentration.");
-        return std::nullopt;
+        ESP_LOGE(tag, "Min %s cannot be greater than max %s.", type_name, type_name);
+        return false;
     }
 
-    esp_matter::endpoint::air_quality_sensor::config_t aq_endpoint_config;
+    esp_matter::cluster::concentration_measurement::config_t cluster_config;
 
+    // IMPORTANT: Matter 1.3 requires explicitly setting Feature Flags for Concentration
+    // Measurements. We explicitly enable Numeric Measurement (and optionally Average Measurement if
+    // tracked).
+    cluster_config.feature_flags =
+        esp_matter::cluster::concentration_measurement::feature::numeric_measurement::get_id();
+
+    cluster_config.measurement_medium =
+        static_cast<uint8_t>(ConcentrationMeasurement::MeasurementMediumEnum::kAir);
+    cluster_config.features.numeric_measurement.measurement_unit =
+        static_cast<uint8_t>(ServerCluster::unit);
+
+    // Set initial operational attribute bounds (Values are floating-point types in Matter 1.3+)
+    cluster_config.features.numeric_measurement.measured_value = nullable<float>();
+    cluster_config.features.numeric_measurement.min_measured_value = scaled_min;
+    cluster_config.features.numeric_measurement.max_measured_value = scaled_max;
+
+    // Widen bounds by 1 ULP because ConcentrationMeasurementCluster::IsInRange uses strict > and <.
+    ServerCluster::min_measured =
+        scaled_min.is_null() ? DataModel::NullNullable
+                             : DataModel::MakeNullable(std::nextafter(
+                                   scaled_min.value(), -std::numeric_limits<float>::infinity()));
+    ServerCluster::max_measured =
+        scaled_max.is_null() ? DataModel::NullNullable
+                             : DataModel::MakeNullable(std::nextafter(
+                                   scaled_max.value(), std::numeric_limits<float>::infinity()));
+
+    esp_matter::cluster_t* cluster =
+        create_fn(endpoint, &cluster_config, esp_matter::CLUSTER_FLAG_SERVER);
+    if (cluster == nullptr) {
+        ESP_LOGE(tag, "Failed to attach %s cluster to endpoint.", type_name);
+        return false;
+    }
+
+    esp_matter::cluster::set_init_and_shutdown_callbacks(
+        cluster, ServerCluster::initCallback, ServerCluster::shutdownCallback);
+    ESP_LOGI(tag, "%s cluster attached to air quality endpoint", type_name);
+    return true;
+}
+
+// Air Quality Sensor endpoint shared by CO2, TVOC and air quality; Matter requires the
+// Air Quality cluster on this device type.
+esp_matter::endpoint_t* createAirQualityEndpoint(esp_matter::node_t* matter_node) {
+    esp_matter::endpoint::air_quality_sensor::config_t aq_endpoint_config;
     auto* endpoint = esp_matter::endpoint::air_quality_sensor::create(
         matter_node, &aq_endpoint_config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
-
-    if (endpoint == nullptr) {
-        ESP_LOGE(tag, "Failed to create %s sensor endpoint.", type_name);
-        return std::nullopt;
-    }
+    if (!finishEndpoint(endpoint, "Air quality")) { return nullptr; }
 
     if (auto* aq_cluster = esp_matter::cluster::get(endpoint, AirQuality::Id);
         aq_cluster != nullptr) {
@@ -550,67 +626,25 @@ std::optional<uint16_t> createCarbonDioxideConcentrationEndpoint(esp_matter::nod
         esp_matter::cluster::air_quality::feature::very_poor::add(aq_cluster);
         esp_matter::cluster::air_quality::feature::extremely_poor::add(aq_cluster);
     }
-
-    // Initialize and Populate the CO2 Cluster Configuration struct
-    esp_matter::cluster::carbon_dioxide_concentration_measurement::config_t co2_cluster_config;
-
-    // IMPORTANT: Matter 1.3 requires explicitly setting Feature Flags for Concentration
-    // Measurements. We explicitly enable Numeric Measurement (and optionally Average Measurement if
-    // tracked).
-    co2_cluster_config.feature_flags = esp_matter::cluster::
-        carbon_dioxide_concentration_measurement::feature::numeric_measurement::get_id();
-
-    // Set standard Matter metadata values for a CO2 sensor
-    co2_cluster_config.measurement_medium =
-        static_cast<uint8_t>(ConcentrationMeasurement::MeasurementMediumEnum::kAir);
-    co2_cluster_config.features.numeric_measurement.measurement_unit =
-        static_cast<uint8_t>(ConcentrationMeasurement::MeasurementUnitEnum::kPpm);
-
-    // Set initial operational attribute bounds (Values are floating-point types in Matter 1.3+)
-    co2_cluster_config.features.numeric_measurement.measured_value = nullable<float>();
-    co2_cluster_config.features.numeric_measurement.min_measured_value = scaled_min;
-    co2_cluster_config.features.numeric_measurement.max_measured_value = scaled_max;
-
-    // Widen bounds by 1 ULP because ConcentrationMeasurementCluster::IsInRange uses strict > and <.
-    s_co2_min_measured = scaled_min.is_null()
-                             ? DataModel::NullNullable
-                             : DataModel::MakeNullable(std::nextafter(
-                                   scaled_min.value(), -std::numeric_limits<float>::infinity()));
-    s_co2_max_measured = scaled_max.is_null()
-                             ? DataModel::NullNullable
-                             : DataModel::MakeNullable(std::nextafter(
-                                   scaled_max.value(), std::numeric_limits<float>::infinity()));
-
-    esp_matter::cluster_t* co2_cluster =
-        esp_matter::cluster::carbon_dioxide_concentration_measurement::create(
-            endpoint, &co2_cluster_config, esp_matter::CLUSTER_FLAG_SERVER);
-
-    if (co2_cluster == nullptr) {
-        ESP_LOGE(tag, "Failed to attach Carbon Dioxide Concentration Cluster to endpoint.");
-        return std::nullopt;
-    }
-
-    esp_matter::cluster::set_init_and_shutdown_callbacks(
-        co2_cluster, co2ClusterServerInitCallback, co2ClusterServerShutdownCallback);
-
-    return finishEndpoint(endpoint, type_name);
+    return endpoint;
 }
 
-AirQuality::AirQualityEnum co2ToAirQuality(const std::optional<float>& co2_ppm) {
-    if (!co2_ppm.has_value() || !std::isfinite(*co2_ppm)) {
+AirQuality::AirQualityEnum toMatterAirQuality(const std::optional<float>& air_quality) {
+    if (!air_quality.has_value() || !std::isfinite(*air_quality)) {
         return AirQuality::AirQualityEnum::kUnknown;
     }
-    if (*co2_ppm < 800.0F) { return AirQuality::AirQualityEnum::kGood; }
-    if (*co2_ppm < 1000.0F) { return AirQuality::AirQualityEnum::kFair; }
-    if (*co2_ppm < 1500.0F) { return AirQuality::AirQualityEnum::kModerate; }
-    if (*co2_ppm < 2000.0F) { return AirQuality::AirQualityEnum::kPoor; }
-    if (*co2_ppm < 5000.0F) { return AirQuality::AirQualityEnum::kVeryPoor; }
-    return AirQuality::AirQualityEnum::kExtremelyPoor;
+    const long level = std::lround(*air_quality);
+    if (level < static_cast<long>(AirQualityLevel::UNKNOWN) ||
+        level > static_cast<long>(AirQualityLevel::EXTREMELY_POOR)) {
+        return AirQuality::AirQualityEnum::kUnknown;
+    }
+    // AirQualityLevel values match AirQualityEnum.
+    return static_cast<AirQuality::AirQualityEnum>(level);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-esp_err_t updateAirQualityFromCo2(const std::optional<uint16_t> endpoint_id,
-                                  const std::optional<float> co2_ppm) {
+esp_err_t updateAirQuality(const std::optional<uint16_t> endpoint_id,
+                           const std::optional<float> air_quality) {
     if (!endpoint_id.has_value()) { return ESP_OK; }
 
     auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
@@ -622,7 +656,7 @@ esp_err_t updateAirQualityFromCo2(const std::optional<uint16_t> endpoint_id,
 
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
     auto* aq_cluster = static_cast<AirQualityCluster*>(cluster);
-    const auto new_aq = co2ToAirQuality(co2_ppm);
+    const auto new_aq = toMatterAirQuality(air_quality);
     if (aq_cluster->GetAirQuality() == new_aq) { return ESP_OK; }
 
     if (aq_cluster->SetAirQuality(new_aq) != chip::Protocols::InteractionModel::Status::Success) {
@@ -632,6 +666,7 @@ esp_err_t updateAirQualityFromCo2(const std::optional<uint16_t> endpoint_id,
     ESP_LOGI(tag, "Updating air quality to %u", static_cast<unsigned int>(new_aq));
     return ESP_OK;
 }
+
 std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matter_node,
                                                         const nullable<uint16_t> scaled_min,
                                                         const nullable<uint16_t> scaled_max) {
@@ -671,8 +706,8 @@ MatterManager::init(const SensorRanges& ranges) {
     ESP_LOGI(tag, "Matter node created");
 
     // Create an endpoint for every type a detected sensor provides.
-    if (const auto& range = ranges[toIndex(SensorType::TEMPERATURE)]) {
-        auto& measurement = measurements_[toIndex(SensorType::TEMPERATURE)];
+    if (const auto& range = at<SensorType::TEMPERATURE>(ranges)) {
+        auto& measurement = at<SensorType::TEMPERATURE>(measurements_);
         measurement.range = range;
         measurement.endpoint_id = createTemperatureSensorEndpoint(
             matter_node, matterScaleTemp(range->min, *range), matterScaleTemp(range->max, *range));
@@ -682,8 +717,8 @@ MatterManager::init(const SensorRanges& ranges) {
         }
     }
 
-    if (const auto& range = ranges[toIndex(SensorType::PRESSURE)]) {
-        auto& measurement = measurements_[toIndex(SensorType::PRESSURE)];
+    if (const auto& range = at<SensorType::PRESSURE>(ranges)) {
+        auto& measurement = at<SensorType::PRESSURE>(measurements_);
         measurement.range = range;
         measurement.endpoint_id =
             createPressureSensorEndpoint(matter_node,
@@ -695,8 +730,8 @@ MatterManager::init(const SensorRanges& ranges) {
         }
     }
 
-    if (const auto& range = ranges[toIndex(SensorType::RELATIVE_HUMIDITY)]) {
-        auto& measurement = measurements_[toIndex(SensorType::RELATIVE_HUMIDITY)];
+    if (const auto& range = at<SensorType::RELATIVE_HUMIDITY>(ranges)) {
+        auto& measurement = at<SensorType::RELATIVE_HUMIDITY>(measurements_);
         measurement.range = range;
         measurement.endpoint_id =
             createRelativeHumiditySensorEndpoint(matter_node,
@@ -708,21 +743,61 @@ MatterManager::init(const SensorRanges& ranges) {
         }
     }
 
-    if (const auto& range = ranges[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)]) {
-        auto& measurement = measurements_[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)];
+    // CO2, TVOC and air quality are independent, but share one Air Quality Sensor endpoint.
+    esp_matter::endpoint_t* aq_endpoint = nullptr;
+    auto get_aq_endpoint = [&]() -> esp_matter::endpoint_t* {
+        if (aq_endpoint == nullptr) { aq_endpoint = createAirQualityEndpoint(matter_node); }
+        return aq_endpoint;
+    };
+
+    if (const auto& range = at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(ranges)) {
+        auto& measurement = at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(measurements_);
         measurement.range = range;
-        measurement.endpoint_id = createCarbonDioxideConcentrationEndpoint(
-            matter_node,
-            matterScaleCarbonDioxideConcentration(range->min, *range),
-            matterScaleCarbonDioxideConcentration(range->max, *range));
-        if (!measurement.endpoint_id) {
+        auto* endpoint = get_aq_endpoint();
+        if (endpoint == nullptr ||
+            !attachConcentrationCluster<Co2ServerCluster>(
+                endpoint,
+                esp_matter::cluster::carbon_dioxide_concentration_measurement::create,
+                matterScaleCarbonDioxideConcentration(range->min, *range),
+                matterScaleCarbonDioxideConcentration(range->max, *range),
+                "Carbon dioxide concentration")) {
             ESP_LOGE(tag, "Failed to initialize carbon dioxide concentration sensor.");
             return ESP_FAIL;
         }
+        measurement.endpoint_id = esp_matter::endpoint::get_id(endpoint);
     }
 
-    if (const auto& range = ranges[toIndex(SensorType::ILLUMINANCE)]) {
-        auto& measurement = measurements_[toIndex(SensorType::ILLUMINANCE)];
+    if (const auto& range = at<SensorType::TVOC_CONCENTRATION>(ranges)) {
+        auto& measurement = at<SensorType::TVOC_CONCENTRATION>(measurements_);
+        measurement.range = range;
+        auto* endpoint = get_aq_endpoint();
+        if (endpoint == nullptr ||
+            !attachConcentrationCluster<TvocServerCluster>(
+                endpoint,
+                esp_matter::cluster::total_volatile_organic_compounds_concentration_measurement::
+                    create,
+                matterScaleTvocConcentration(range->min, *range),
+                matterScaleTvocConcentration(range->max, *range),
+                "TVOC concentration")) {
+            ESP_LOGE(tag, "Failed to initialize TVOC concentration sensor.");
+            return ESP_FAIL;
+        }
+        measurement.endpoint_id = esp_matter::endpoint::get_id(endpoint);
+    }
+
+    if (const auto& range = at<SensorType::AIR_QUALITY>(ranges)) {
+        auto& measurement = at<SensorType::AIR_QUALITY>(measurements_);
+        measurement.range = range;
+        auto* endpoint = get_aq_endpoint();
+        if (endpoint == nullptr) {
+            ESP_LOGE(tag, "Failed to initialize air quality sensor.");
+            return ESP_FAIL;
+        }
+        measurement.endpoint_id = esp_matter::endpoint::get_id(endpoint);
+    }
+
+    if (const auto& range = at<SensorType::ILLUMINANCE>(ranges)) {
+        auto& measurement = at<SensorType::ILLUMINANCE>(measurements_);
         measurement.range = range;
         measurement.endpoint_id =
             createIlluminanceSensorEndpoint(matter_node,
@@ -845,47 +920,53 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
 
     auto ret = ESP_OK;
     auto result =
-        updateValue<TemperatureMeasurementCluster>(values[toIndex(SensorType::TEMPERATURE)],
-                                                   measurements_[toIndex(SensorType::TEMPERATURE)],
+        updateValue<TemperatureMeasurementCluster>(at<SensorType::TEMPERATURE>(values),
+                                                   at<SensorType::TEMPERATURE>(measurements_),
                                                    matterScaleTemp,
                                                    "temperature",
                                                    TemperatureMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
-    result = updateValue<PressureMeasurementCluster>(values[toIndex(SensorType::PRESSURE)],
-                                                     measurements_[toIndex(SensorType::PRESSURE)],
+    result = updateValue<PressureMeasurementCluster>(at<SensorType::PRESSURE>(values),
+                                                     at<SensorType::PRESSURE>(measurements_),
                                                      matterScalePressureToKpa,
                                                      "pressure",
                                                      PressureMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     result = updateValue<RelativeHumidityMeasurementCluster>(
-        values[toIndex(SensorType::RELATIVE_HUMIDITY)],
-        measurements_[toIndex(SensorType::RELATIVE_HUMIDITY)],
+        at<SensorType::RELATIVE_HUMIDITY>(values),
+        at<SensorType::RELATIVE_HUMIDITY>(measurements_),
         matterScaleRelativeHumidity,
         "relative humidity",
         RelativeHumidityMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     result = updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
-        values[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)],
-        measurements_[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)],
+        at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(values),
+        at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(measurements_),
         matterScaleCarbonDioxideConcentration,
         "carbon dioxide (CO2) concentration",
         CarbonDioxideConcentrationMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
-    result = updateAirQualityFromCo2(
-        measurements_[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)].endpoint_id,
-        values[toIndex(SensorType::CARBON_DIOXIDE_CONCENTRATION)]);
+    result = updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
+        at<SensorType::TVOC_CONCENTRATION>(values),
+        at<SensorType::TVOC_CONCENTRATION>(measurements_),
+        matterScaleTvocConcentration,
+        "TVOC concentration",
+        TotalVolatileOrganicCompoundsConcentrationMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
-    result =
-        updateValue<IlluminanceMeasurementCluster>(values[toIndex(SensorType::ILLUMINANCE)],
-                                                   measurements_[toIndex(SensorType::ILLUMINANCE)],
-                                                   matterScaleIlluminance,
-                                                   "illuminance",
-                                                   IlluminanceMeasurement::Id);
+    result = updateAirQuality(at<SensorType::AIR_QUALITY>(measurements_).endpoint_id,
+                              at<SensorType::AIR_QUALITY>(values));
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateValue<IlluminanceMeasurementCluster>(at<SensorType::ILLUMINANCE>(values),
+                                                        at<SensorType::ILLUMINANCE>(measurements_),
+                                                        matterScaleIlluminance,
+                                                        "illuminance",
+                                                        IlluminanceMeasurement::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     return ret;

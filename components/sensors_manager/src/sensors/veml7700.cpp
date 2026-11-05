@@ -70,6 +70,8 @@ std::optional<SensorValueRange> Veml7700::getValueRangeForType(SensorType type) 
     case SensorType::PRESSURE:
     case SensorType::RELATIVE_HUMIDITY:
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
+    case SensorType::TVOC_CONCENTRATION:
+    case SensorType::AIR_QUALITY:
         return std::nullopt;
     case SensorType::ILLUMINANCE:
         return SensorValueRange{.min = illum_min_lux,
@@ -145,7 +147,7 @@ esp_err_t Veml7700::read(SensorReadings& readings, SensorReadings& /*compensatio
             ESP_RETURN_ON_ERROR(applyConfigRange(), tag, "read failed trying to change range");
             continue;
         }
-        readings[toIndex(SensorType::ILLUMINANCE)] =
+        at<SensorType::ILLUMINANCE>(readings) =
             static_cast<float>(counts) *
             ladder[ladderIdx_].res; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
         break;
