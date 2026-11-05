@@ -161,11 +161,18 @@ def main():
     # A C component's headers are checked via its C sources only; C++ includers would apply C++ rules.
     c_dirs = sorted({str(Path(f).parent) for f in db_files if f.endswith(".c") and is_project_file(Path(f))})
     c_header_filter = "^(" + "|".join(c_dirs) + ")/" if c_dirs else None
+    # Vendored, unmodified code (components/*/third_party, often a git submodule that can't hold a
+    # .clang-tidy) is never reported via its headers, and its sources get bug-finding checks only.
+    vendor_header_filter = ".*/third_party/.*"
 
     def run(source):
-        cmd = [clang_tidy, "-p", str(db_dir), "--quiet", f"--header-filter={header_filter}", source]
+        excludes = [vendor_header_filter]
         if c_header_filter and not source.endswith(".c"):
-            cmd.insert(-1, f"--exclude-header-filter={c_header_filter}")
+            excludes.append(c_header_filter)
+        cmd = [clang_tidy, "-p", str(db_dir), "--quiet", f"--header-filter={header_filter}",
+               f"--exclude-header-filter={'|'.join(excludes)}", source]
+        if "/third_party/" in source:
+            cmd.insert(-1, "--checks=-*,clang-analyzer-*")
         return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
 
     failed = False

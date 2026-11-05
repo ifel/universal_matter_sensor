@@ -1,0 +1,8 @@
+## IDF Component Manager Manifest File
+description: Bosch BMP5 SensorAPI (BMP581/BMP585) with esp-idf-lib i2cdev bus glue
+license: BSD-3-Clause
+dependencies:
+  idf:
+    version: '>=6.1.0'
+  esp-idf-lib/i2cdev: '*'
+  esp-idf-lib/esp_idf_lib_helpers: '*'

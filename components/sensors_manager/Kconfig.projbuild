@@ -38,6 +38,25 @@ menu "Sensors Configuration"
         default 0x77 if BMP280_I2C_ADDRESS_0X77
         default 0x76 if BMP280_I2C_ADDRESS_0X76
 
+    choice BMP581_I2C_ADDRESS_CHOICE
+        prompt "BMP581 / BMP585 I2C Address"
+        default BMP581_I2C_ADDRESS_0X47
+        help
+            Select the I2C address of the BMP581 / BMP585 sensor.
+            Adafruit and SparkFun BMP581 modules default to 0x47 (SDO pulled high).
+            Modules with SDO connected to GND use 0x46.
+
+        config BMP581_I2C_ADDRESS_0X47
+            bool "0x47 (SDO high / module default)"
+        config BMP581_I2C_ADDRESS_0X46
+            bool "0x46 (SDO connected to GND)"
+    endchoice
+
+    config BMP581_I2C_ADDRESS
+        hex
+        default 0x47 if BMP581_I2C_ADDRESS_0X47
+        default 0x46 if BMP581_I2C_ADDRESS_0X46
+
     choice ENS160_I2C_ADDRESS_CHOICE
         prompt "ENS160 I2C Address"
         default ENS160_I2C_ADDRESS_0X53

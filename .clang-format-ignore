@@ -1,0 +1,2 @@
+# Vendored code (git submodules) keeps upstream formatting.
+components/*/third_party/**

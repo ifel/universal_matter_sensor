@@ -1,0 +1,3 @@
+[submodule "components/bmp5/third_party"]
+	path = components/bmp5/third_party
+	url = https://github.com/boschsensortec/BMP5_SensorAPI.git

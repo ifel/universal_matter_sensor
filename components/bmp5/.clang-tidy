@@ -1,0 +1,17 @@
+---
+# C glue code: inherit project checks, drop C++-only and project-naming rules.
+InheritParentConfig: true
+Checks: >
+  -modernize-*,
+  -cppcoreguidelines-macro-to-enum,
+  -cppcoreguidelines-use-enum-class,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-pro-type-member-init,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-naming,
+  -readability-identifier-length,
+  -readability-uppercase-literal-suffix,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -performance-enum-size
+...

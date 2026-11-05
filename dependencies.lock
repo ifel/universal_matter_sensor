@@ -216,6 +216,6 @@ direct_dependencies:
 - espressif/esp_secure_cert_mgr
 - espressif/mdns
 - idf
-manifest_hash: 258fd5c92ff77a1a38cc7a92b4c77c6b1a85b414b75cd9379fe8888b50068172
+manifest_hash: d1f1a36729b9d935000d0791904bbee4fb87548bb94aa9e0fb3cc57b9a8c2a6f
 target: esp32c6
 version: 3.0.0
