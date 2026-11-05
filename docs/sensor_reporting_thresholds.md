@@ -78,6 +78,7 @@ $$\text{threshold} \approx \max\!\big(2.5 \times \text{Repeatability}_{3\sigma},
 | **ScioSense ENS160** | **TVOC** | `0 .. 65,000 ppb` | `1 ppb` | Algorithm output, updated every `1 s` | Relative trend; baseline drifts during the first hour of operation | `1 ppb` | **`10 ppb`** | **`0.05` (`5%`)** |
 | **ScioSense ENS160** | **Air Quality** *(UBA index 1–5)* | `1 .. 5` (mapped to Matter `Good .. VeryPoor`) | `1` level | — | — | `1` level | **`1` level** | **`0.0`** |
 | **Vishay VEML7700** | **Illuminance** | `0 .. 120,000 lx` | `0.0036 lx` (high gain) to `1.84 lx` (low gain) | `±1–2 LSB` dark noise + `~1–2%` artificial light flicker | `±10% .. ±15%` | Logarithmic (`10000 × log10(lx) + 1`) | **`1.0 lx`** | **`0.03` (`3%`)** to **`0.05` (`5%`)** |
+| **ams TSL2591** | **Illuminance** | `0.000188 .. 88,000 lx` | `~0.0002 lx` (max gain, 600 ms) to `~2.3 lx` (low gain, 100 ms) | `±1–2` counts dark noise; auto-ranged gain/integration | `±10% .. ±20%` (IR-compensated, light-source dependent) | Logarithmic (`10000 × log10(lx) + 1`) | **`1.0 lx`** | **`0.03` (`3%`)** |
 
 > **¹ Note on Pressure (`50 Pa` vs `100 Pa`):**
 > Matter's `PressureMeasurementCluster` `MeasuredValue` attribute is `int16_t` in **`0.1 kPa` (`100 Pa = 1 hPa`)** units. Setting `abs_threshold = 50 Pa` (`0.5 hPa`, half a Matter LSB) ensures that any `0.5–1.0 hPa` change that crosses a rounding boundary updates Matter immediately, while ignoring `< 50 Pa` fluctuations that round to the same Matter integer anyway.
