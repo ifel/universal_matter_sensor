@@ -25,7 +25,8 @@ Checks: >
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
   -misc-non-private-member-variables-in-classes,
-  -misc-no-recursion
+  -misc-no-recursion,
+  -misc-include-cleaner
 
 # Treat specific high-severity warnings as compilation errors
 WarningsAsErrors: >

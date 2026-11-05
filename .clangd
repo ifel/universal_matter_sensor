@@ -1,8 +1,13 @@
 CompileFlags:
+  # Root compile_commands.json symlink, updated by CMakeLists.txt to the last configured preset.
+  # Overrides --compile-commands-dir set by the ESP-IDF extension.
+  CompilationDatabase: .
   Remove: 
     - -fno-shrink-wrap
     - -fstrict-volatile-bitfields
     - -fno-tree-switch-conversion
+    - -fzero-init-padding-bits=all
+    - -fno-malloc-dce
 
 ---
 # Mute all diagnostics originating from Espressif's hidden tooling folder
