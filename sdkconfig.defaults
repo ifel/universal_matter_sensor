@@ -58,3 +58,8 @@ CONFIG_CHIP_OTA_IMAGE_BUILD=y
 
 # Override project config
 CONFIG_CHIP_PROJECT_CONFIG="main/include/CHIPProjectConfig.h"
+
+# Flash size (dev keeps the CHIP shell and Matter progress logs for debugging; prod drops those too).
+# MBEDTLS_ERROR_STRINGS stays on here: CHIP logging links mbedtls_strerror.
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
