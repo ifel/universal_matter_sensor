@@ -18,7 +18,8 @@ struct SensorValueRange {
 
 // Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH, Carbon Dioxide
 // Concentration, ppm, Illuminance, Lux, TVOC Concentration, ppb, Air Quality, AirQualityLevel,
-// Remaining Level, % of a consumable left). Keep REMAINING_LEVEL last, or update sensor_type_count.
+// Remaining Level, % of a consumable left, Battery Percent, %, Battery Voltage, V, Battery Charge
+// State, BatteryChargeState). Keep BATTERY_CHARGE_STATE last, or update sensor_type_count.
 enum class SensorType : uint8_t {
     TEMPERATURE,
     PRESSURE,
@@ -27,10 +28,14 @@ enum class SensorType : uint8_t {
     ILLUMINANCE,
     TVOC_CONCENTRATION,
     AIR_QUALITY,
-    REMAINING_LEVEL
+    REMAINING_LEVEL,
+    BATTERY_PERCENT,
+    BATTERY_VOLTAGE,
+    BATTERY_CHARGE_STATE
 };
 
-inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::REMAINING_LEVEL) + 1;
+inline constexpr size_t sensor_type_count =
+    static_cast<size_t>(SensorType::BATTERY_CHARGE_STATE) + 1;
 
 // Types published on the Matter Air Quality Sensor endpoint. AIR_QUALITY is not owned by a single
 // sensor: it is the worst value reported by the sensors owning any of these types.
@@ -49,6 +54,9 @@ enum class AirQualityLevel : uint8_t {
     VERY_POOR,
     EXTREMELY_POOR
 };
+
+// BATTERY_CHARGE_STATE reading values; numerically equal to Matter's BatChargeStateEnum.
+enum class BatteryChargeState : uint8_t { UNKNOWN, CHARGING, FULL, NOT_CHARGING };
 
 // Per-type containers indexed by SensorType.
 template <typename T> using PerSensorType = std::array<T, sensor_type_count>;

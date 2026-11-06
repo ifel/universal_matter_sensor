@@ -7,6 +7,7 @@
 #include "sensors/bmp280_bme280.h"
 #include "sensors/bmp581.h"
 #include "sensors/ens160.h"
+#include "sensors/max17048.h"
 #include "sensors/scd30.h"
 #include "sensors/sht4x.h"
 #include "sensors/tmp117.h"
@@ -42,17 +43,18 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     }
 
     // Add new sensor drivers here.
-    std::array<std::unique_ptr<Sensor>, 9> candidates = {std::make_unique<Tmp117>(),
-                                                         std::make_unique<Sht4x>(),
-                                                         std::make_unique<Bmp581>(),
-                                                         std::make_unique<Bmp280Bme280>(),
-                                                         std::make_unique<Scd30>(),
-                                                         std::make_unique<Ens160>(),
-                                                         std::make_unique<Veml7700>(),
-                                                         // Before Tsl2591: both use 0x29, and the
-                                                         // VL53L1X ID check writes to the bus.
-                                                         std::make_unique<Vl53l1x>(),
-                                                         std::make_unique<Tsl2591>()};
+    std::array<std::unique_ptr<Sensor>, 10> candidates = {std::make_unique<Tmp117>(),
+                                                          std::make_unique<Sht4x>(),
+                                                          std::make_unique<Bmp581>(),
+                                                          std::make_unique<Bmp280Bme280>(),
+                                                          std::make_unique<Scd30>(),
+                                                          std::make_unique<Ens160>(),
+                                                          std::make_unique<Veml7700>(),
+                                                          // Before Tsl2591: both use 0x29, and the
+                                                          // VL53L1X ID check writes to the bus.
+                                                          std::make_unique<Vl53l1x>(),
+                                                          std::make_unique<Tsl2591>(),
+                                                          std::make_unique<Max17048>()};
 
     for (auto& sensor : candidates) {
         if (sensor->init(read_interval_ms) != ESP_OK) {

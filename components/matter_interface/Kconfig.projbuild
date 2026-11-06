@@ -7,4 +7,18 @@ menu "Matter Manager Configuration"
         help
             Maximal interval in seconds between reportings.
 
+    config MATTER_BATTERY_WARNING_PERCENT
+        int "Battery warning level (%)"
+        range 0 100
+        default 20
+        help
+            Power Source BatChargeLevel turns Warning at or below this battery percentage.
+
+    config MATTER_BATTERY_CRITICAL_PERCENT
+        int "Battery critical level (%)"
+        range 0 100
+        default 10
+        help
+            Power Source BatChargeLevel turns Critical at or below this battery percentage.
+
 endmenu

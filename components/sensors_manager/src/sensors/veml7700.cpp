@@ -73,6 +73,9 @@ std::optional<SensorValueRange> Veml7700::getValueRangeForType(SensorType type) 
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
     case SensorType::REMAINING_LEVEL:
+    case SensorType::BATTERY_PERCENT:
+    case SensorType::BATTERY_VOLTAGE:
+    case SensorType::BATTERY_CHARGE_STATE:
         return std::nullopt;
     case SensorType::ILLUMINANCE:
         return SensorValueRange{.min = illum_min_lux,

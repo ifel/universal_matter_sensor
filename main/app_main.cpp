@@ -147,6 +147,9 @@ extern "C" void app_main() {
         const auto& tvoc_concentration = at<SensorType::TVOC_CONCENTRATION>(readings);
         const auto& air_quality = at<SensorType::AIR_QUALITY>(readings);
         const auto& remaining_level = at<SensorType::REMAINING_LEVEL>(readings);
+        const auto& battery_percent = at<SensorType::BATTERY_PERCENT>(readings);
+        const auto& battery_voltage = at<SensorType::BATTERY_VOLTAGE>(readings);
+        const auto& battery_charge_state = at<SensorType::BATTERY_CHARGE_STATE>(readings);
         if (temperature.has_value()) {
             ESP_LOGI(tag,
                      "Temperature = %.2f°C from %s",
@@ -195,6 +198,24 @@ extern "C" void app_main() {
                      "Remaining Level = %.1f %% from %s",
                      *remaining_level,
                      sensors_manager.getSensorModelNameForType(SensorType::REMAINING_LEVEL));
+        }
+        if (battery_percent.has_value()) {
+            ESP_LOGI(tag,
+                     "Battery = %.1f %% from %s",
+                     *battery_percent,
+                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_PERCENT));
+        }
+        if (battery_voltage.has_value()) {
+            ESP_LOGI(tag,
+                     "Battery Voltage = %.3f V from %s",
+                     *battery_voltage,
+                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_VOLTAGE));
+        }
+        if (battery_charge_state.has_value()) {
+            ESP_LOGI(tag,
+                     "Battery Charge State = %.0f (1 charging, 2 full, 3 not charging) from %s",
+                     *battery_charge_state,
+                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_CHARGE_STATE));
         }
 
         compensations = readings;

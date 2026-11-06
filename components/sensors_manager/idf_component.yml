@@ -7,4 +7,5 @@ dependencies:
   esp-idf-lib/scd30: '*'
   esp-idf-lib/veml7700: '*'
   esp-idf-lib/tsl2591: '*'
+  esp-idf-lib/max1704x: '*'
   grrtzm/vl53l1x_library: '^0.3.1'

@@ -44,6 +44,9 @@ std::optional<SensorValueRange> Bmp581::getValueRangeForType(SensorType type) co
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
     case SensorType::REMAINING_LEVEL:
+    case SensorType::BATTERY_PERCENT:
+    case SensorType::BATTERY_VOLTAGE:
+    case SensorType::BATTERY_CHARGE_STATE:
         return std::nullopt;
     }
     return std::nullopt;

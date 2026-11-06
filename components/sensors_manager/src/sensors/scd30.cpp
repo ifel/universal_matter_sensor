@@ -71,6 +71,9 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
         return SensorValueRange{
             .min = aq_min_level, .max = aq_max_level, .abs_threshold = aq_abs_threshold};
     case SensorType::REMAINING_LEVEL:
+    case SensorType::BATTERY_PERCENT:
+    case SensorType::BATTERY_VOLTAGE:
+    case SensorType::BATTERY_CHARGE_STATE:
     case SensorType::ILLUMINANCE:
     case SensorType::TVOC_CONCENTRATION:
         return std::nullopt;

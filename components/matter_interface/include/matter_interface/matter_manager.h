@@ -53,6 +53,15 @@ class MatterManager {
                                  const char* type_name,
                                  uint32_t cluster_id);
 
+    // Same deadband/heartbeat for clusters whose attributes esp-matter stores (attribute::update).
+    template <typename ToAttrVal>
+    static esp_err_t updateAttribute(std::optional<float> value,
+                                     Measurement& measurement,
+                                     ToAttrVal to_attr_val,
+                                     const char* type_name,
+                                     uint32_t cluster_id,
+                                     uint32_t attribute_id);
+
     PerSensorType<Measurement> measurements_{};
     Listeners listeners_;
 };

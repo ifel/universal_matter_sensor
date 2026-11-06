@@ -2,13 +2,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <optional>
 #include <type_traits>
+#include <vector>
 
 #include <app/clusters/air-quality-server/AirQualityCluster.h>
 #include <app/clusters/concentration-measurement-server/ConcentrationMeasurementCluster.h>
 #include <app/clusters/illuminance-measurement-server/IlluminanceMeasurementCluster.h>
+#include <app/clusters/power-source-server/power-source-server.h>
 #include <app/clusters/pressure-measurement-server/PressureMeasurementCluster.h>
 #include <app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.h>
 #include <app/clusters/resource-monitoring-server/ResourceMonitoringCluster.h>
@@ -49,6 +52,8 @@ constexpr float matter_relative_humidity_scale = 100.0F;
 constexpr float matter_pressure_scale = 0.01F; // Scale - 10.0F and PA -> kPa => 10/1000
 constexpr float matter_carbon_dioxide_concentration_scale = 1.0F;
 constexpr float matter_tvoc_concentration_scale = 1.0F;
+constexpr float matter_battery_percent_scale = 2.0F;    // BatPercentRemaining is in half percent
+constexpr float matter_battery_voltage_scale = 1000.0F; // V -> mV
 constexpr int64_t report_max_interval_us =
     static_cast<int64_t>(CONFIG_MATTER_REPORT_MAX_INTERVAL_S) * 1'000'000LL;
 
@@ -68,6 +73,23 @@ void notifyCommissioningWindow(bool open) {
 void notifyIdentify(bool identifying) {
     if (s_listeners != nullptr && s_listeners->on_identify) {
         s_listeners->on_identify(identifying);
+    }
+}
+
+// Power Source endpoint and the endpoints it powers, set by init() for kServerReady.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::optional<uint16_t> s_power_source_endpoint_id;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::vector<chip::EndpointId> s_powered_endpoint_ids;
+
+// The list is kept by the Power Source server, which needs the data model to be up.
+void setPowerSourceEndpointList() {
+    if (!s_power_source_endpoint_id.has_value()) { return; }
+    const CHIP_ERROR err = PowerSourceServer::Instance().SetEndpointList(
+        *s_power_source_endpoint_id,
+        chip::Span<chip::EndpointId>(s_powered_endpoint_ids.data(), s_powered_endpoint_ids.size()));
+    if (err != CHIP_NO_ERROR) {
+        ESP_LOGE(tag, "Failed to set the power source endpoint list: %s", err.Format());
     }
 }
 
@@ -197,6 +219,7 @@ void matterEventCallback(const ChipDeviceEvent* event, intptr_t /*arg*/) {
     // Indicates that server initialization has completed, and the node is ready for connections.
     case chip::DeviceLayer::DeviceEventType::kServerReady:
         ESP_LOGI(tag, "Server is ready");
+        setPowerSourceEndpointList();
         break;
 
     // Signals that BLE has been deinitialized.
@@ -763,6 +786,110 @@ esp_err_t updateRemainingLevel(const std::optional<uint16_t> endpoint_id,
     ESP_LOGI(tag, "Updating remaining level to %u %%", condition);
     return ESP_OK;
 }
+
+// Battery as a Power Source cluster (Battery feature; Rechargeable for the charge state) on its own
+// endpoint. Its attributes are stored by esp-matter, so they are written with attribute::update.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+std::optional<uint16_t> createPowerSourceEndpoint(esp_matter::node_t* matter_node,
+                                                  const bool has_percent,
+                                                  const bool has_voltage,
+                                                  const bool has_charge_state) {
+    static constexpr const char* type_name = "Power source";
+    static constexpr uint8_t max_battery_half_percent = 200;
+    static constexpr uint32_t max_battery_millivolts = 5120; // MAX17048 VCELL full scale
+
+    esp_matter::endpoint::power_source::config_t config;
+    auto& power_source = config.power_source;
+    power_source.status = chip::to_underlying(PowerSource::PowerSourceStatusEnum::kActive);
+    std::snprintf(power_source.description, sizeof(power_source.description), "%s", "Battery");
+    power_source.feature_flags = esp_matter::cluster::power_source::feature::battery::get_id();
+    power_source.features.battery.bat_charge_level =
+        chip::to_underlying(PowerSource::BatChargeLevelEnum::kOk);
+    power_source.features.battery.bat_replaceability =
+        chip::to_underlying(PowerSource::BatReplaceabilityEnum::kUnspecified);
+    if (has_charge_state) {
+        power_source.feature_flags |=
+            esp_matter::cluster::power_source::feature::rechargeable::get_id();
+        power_source.features.rechargeable.bat_charge_state =
+            chip::to_underlying(PowerSource::BatChargeStateEnum::kUnknown);
+        power_source.features.rechargeable.bat_functional_while_charging = true;
+    }
+
+    auto* endpoint = esp_matter::endpoint::power_source::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    auto* cluster =
+        endpoint == nullptr ? nullptr : esp_matter::cluster::get(endpoint, PowerSource::Id);
+    if (cluster == nullptr ||
+        (has_percent && esp_matter::cluster::power_source::attribute::create_bat_percent_remaining(
+                            cluster,
+                            nullable<uint8_t>(),
+                            nullable<uint8_t>(0),
+                            nullable<uint8_t>(max_battery_half_percent)) == nullptr) ||
+        (has_voltage && esp_matter::cluster::power_source::attribute::create_bat_voltage(
+                            cluster,
+                            nullable<uint32_t>(),
+                            nullable<uint32_t>(0),
+                            nullable<uint32_t>(max_battery_millivolts)) == nullptr)) {
+        ESP_LOGE(tag, "Failed to create %s endpoint.", type_name);
+        return std::nullopt;
+    }
+
+    const uint16_t endpoint_id = esp_matter::endpoint::get_id(endpoint);
+    ESP_LOGI(
+        tag, "%s endpoint created with id %u", type_name, static_cast<unsigned int>(endpoint_id));
+    return endpoint_id;
+}
+
+esp_matter_attr_val_t toBatteryPercentAttr(const std::optional<float>& percent,
+                                           const SensorValueRange& range) {
+    return esp_matter_nullable_uint8(
+        percent.has_value() ? scaleToMatter<uint8_t>(*percent, matter_battery_percent_scale, range)
+                            : nullable<uint8_t>());
+}
+
+esp_matter_attr_val_t toBatteryVoltageAttr(const std::optional<float>& voltage,
+                                           const SensorValueRange& range) {
+    return esp_matter_nullable_uint32(
+        voltage.has_value() ? scaleToMatter<uint32_t>(*voltage, matter_battery_voltage_scale, range)
+                            : nullable<uint32_t>());
+}
+
+esp_matter_attr_val_t toBatteryChargeStateAttr(const std::optional<float>& state,
+                                               const SensorValueRange& /*range*/) {
+    const long value = state.has_value() && std::isfinite(*state) ? std::lround(*state) : 0;
+    const bool known = value > static_cast<long>(BatteryChargeState::UNKNOWN) &&
+                       value <= static_cast<long>(BatteryChargeState::NOT_CHARGING);
+    return esp_matter_enum8(known ? static_cast<uint8_t>(value)
+                                  : chip::to_underlying(PowerSource::BatChargeStateEnum::kUnknown));
+}
+
+// Mandatory BatChargeLevel, derived from the battery percentage; kept as is when unavailable and
+// written only when the level changes.
+esp_err_t updateBatteryChargeLevel(const std::optional<uint16_t> endpoint_id,
+                                   const std::optional<float> percent) {
+    // One Power Source endpoint, only updated under the CHIP lock.
+    static std::optional<PowerSource::BatChargeLevelEnum> last_level;
+    if (!endpoint_id.has_value() || !percent.has_value() || !std::isfinite(*percent)) {
+        return ESP_OK;
+    }
+    auto level = PowerSource::BatChargeLevelEnum::kOk;
+    if (*percent <= static_cast<float>(CONFIG_MATTER_BATTERY_CRITICAL_PERCENT)) {
+        level = PowerSource::BatChargeLevelEnum::kCritical;
+    } else if (*percent <= static_cast<float>(CONFIG_MATTER_BATTERY_WARNING_PERCENT)) {
+        level = PowerSource::BatChargeLevelEnum::kWarning;
+    }
+    if (last_level == level) { return ESP_OK; }
+
+    auto val = esp_matter_enum8(chip::to_underlying(level));
+    const esp_err_t err = esp_matter::attribute::update(
+        *endpoint_id, PowerSource::Id, PowerSource::Attributes::BatChargeLevel::Id, &val);
+    if (err != ESP_OK) {
+        ESP_LOGE(tag, "Failed to update battery charge level: %s", esp_err_to_name(err));
+        return err;
+    }
+    last_level = level;
+    return ESP_OK;
+}
 } // namespace
 
 esp_err_t
@@ -898,6 +1025,43 @@ MatterManager::init(const SensorRanges& ranges) {
         }
     }
 
+    {
+        const auto& percent_range = at<SensorType::BATTERY_PERCENT>(ranges);
+        const auto& voltage_range = at<SensorType::BATTERY_VOLTAGE>(ranges);
+        const auto& charge_state_range = at<SensorType::BATTERY_CHARGE_STATE>(ranges);
+        if (percent_range || voltage_range || charge_state_range) {
+            const auto endpoint_id = createPowerSourceEndpoint(matter_node,
+                                                               percent_range.has_value(),
+                                                               voltage_range.has_value(),
+                                                               charge_state_range.has_value());
+            if (!endpoint_id) {
+                ESP_LOGE(tag, "Failed to initialize power source.");
+                return ESP_FAIL;
+            }
+            auto attach = [&endpoint_id](Measurement& measurement,
+                                         const std::optional<SensorValueRange>& range) {
+                if (!range) { return; }
+                measurement.range = range;
+                measurement.endpoint_id = endpoint_id;
+            };
+            attach(at<SensorType::BATTERY_PERCENT>(measurements_), percent_range);
+            attach(at<SensorType::BATTERY_VOLTAGE>(measurements_), voltage_range);
+            attach(at<SensorType::BATTERY_CHARGE_STATE>(measurements_), charge_state_range);
+
+            // The battery powers every other endpoint (shared ones listed once).
+            s_power_source_endpoint_id = endpoint_id;
+            s_powered_endpoint_ids.clear();
+            for (const auto& measurement : measurements_) {
+                const auto& powered_id = measurement.endpoint_id;
+                if (powered_id && powered_id != endpoint_id &&
+                    std::ranges::find(s_powered_endpoint_ids, *powered_id) ==
+                        s_powered_endpoint_ids.end()) {
+                    s_powered_endpoint_ids.push_back(*powered_id);
+                }
+            }
+        }
+    }
+
     // Start the Matter thread, using an optional event callback with private data.
     // It returns `ESP_OK` if successful or an error if it fails.
     esp_err_t matter_err = esp_matter::start(matterEventCallback);
@@ -1004,6 +1168,45 @@ esp_err_t MatterManager::updateValue(const std::optional<float> value,
     return ESP_OK;
 }
 
+template <typename ToAttrVal>
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t MatterManager::updateAttribute(const std::optional<float> value,
+                                         Measurement& measurement,
+                                         ToAttrVal to_attr_val,
+                                         const char* type_name,
+                                         const uint32_t cluster_id,
+                                         const uint32_t attribute_id) {
+    if (!measurement.endpoint_id.has_value() || !measurement.range.has_value()) { return ESP_OK; }
+
+    const int64_t now_us = esp_timer_get_time();
+    if (shouldSkipReport(value,
+                         *measurement.range,
+                         measurement.last_reported_value,
+                         measurement.last_report_time_us,
+                         measurement.has_reported,
+                         now_us)) {
+        return ESP_OK;
+    }
+
+    if (value.has_value()) {
+        ESP_LOGI(tag, "Updating %s to %.2f", type_name, *value);
+    } else {
+        ESP_LOGW(tag, "%s value is not available, publishing null", type_name);
+    }
+    auto val = to_attr_val(value, *measurement.range);
+    const esp_err_t err =
+        esp_matter::attribute::update(*measurement.endpoint_id, cluster_id, attribute_id, &val);
+    if (err != ESP_OK) {
+        ESP_LOGE(tag, "Failed to update %s: %s", type_name, esp_err_to_name(err));
+        return err;
+    }
+
+    measurement.last_reported_value = value;
+    measurement.last_report_time_us = now_us;
+    measurement.has_reported = true;
+    return ESP_OK;
+}
+
 esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     esp_matter::lock::ScopedChipStackLock lock(portMAX_DELAY);
 
@@ -1060,6 +1263,34 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
 
     result = updateRemainingLevel(at<SensorType::REMAINING_LEVEL>(measurements_).endpoint_id,
                                   at<SensorType::REMAINING_LEVEL>(values));
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateAttribute(at<SensorType::BATTERY_PERCENT>(values),
+                             at<SensorType::BATTERY_PERCENT>(measurements_),
+                             toBatteryPercentAttr,
+                             "battery percent",
+                             PowerSource::Id,
+                             PowerSource::Attributes::BatPercentRemaining::Id);
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateBatteryChargeLevel(at<SensorType::BATTERY_PERCENT>(measurements_).endpoint_id,
+                                      at<SensorType::BATTERY_PERCENT>(values));
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateAttribute(at<SensorType::BATTERY_VOLTAGE>(values),
+                             at<SensorType::BATTERY_VOLTAGE>(measurements_),
+                             toBatteryVoltageAttr,
+                             "battery voltage",
+                             PowerSource::Id,
+                             PowerSource::Attributes::BatVoltage::Id);
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateAttribute(at<SensorType::BATTERY_CHARGE_STATE>(values),
+                             at<SensorType::BATTERY_CHARGE_STATE>(measurements_),
+                             toBatteryChargeStateAttr,
+                             "battery charge state",
+                             PowerSource::Id,
+                             PowerSource::Attributes::BatChargeState::Id);
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     return ret;

@@ -60,6 +60,9 @@ std::optional<SensorValueRange> Vl53l1x::getValueRangeForType(SensorType type) c
     case SensorType::ILLUMINANCE:
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
+    case SensorType::BATTERY_PERCENT:
+    case SensorType::BATTERY_VOLTAGE:
+    case SensorType::BATTERY_CHARGE_STATE:
         return std::nullopt;
     case SensorType::REMAINING_LEVEL:
         return SensorValueRange{.min = level_min_percent,
