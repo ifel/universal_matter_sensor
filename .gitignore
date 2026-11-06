@@ -7,3 +7,4 @@
 sdkconfig
 sdkconfig.old
 compile_commands.json
+/.cache/
