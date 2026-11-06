@@ -30,6 +30,8 @@ class SensorsManager {
     // Valid measurement ranges in the same units; nullopt if no sensor provides the type.
     SensorRanges getRanges() const;
     const char* getSensorModelNameForType(SensorType sensor_type) const;
+    // Forwards to the type's owner; callable from any task (owners are fixed after init).
+    void requestCalibration(SensorType sensor_type);
     bool isSensorsDetected() const;
     // Forwards pushed readings of types each sensor owns; call once, after init().
     void setReadingListener(const Sensor::ReadingListener& listener);

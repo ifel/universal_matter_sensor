@@ -40,6 +40,9 @@ class Sensor {
     // Event-driven sensors push changes through it. Default: polled only.
     // NOLINTNEXTLINE(performance-unnecessary-value-param): by value so overrides can move it.
     virtual void setReadingListener(ReadingListener /*listener*/) {}
+    // Takes the next valid reading of the type as its reference point (e.g. "full"). Callable from
+    // any task. Default: not supported.
+    virtual void requestCalibration(SensorType /*type*/) {}
 
     bool providesType(SensorType type) const {
         return getValueRangeForType(type).has_value();

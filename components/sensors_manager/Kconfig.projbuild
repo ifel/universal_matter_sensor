@@ -27,7 +27,9 @@ menu "Sensors Configuration"
         help
             Distance from the VL53L1X to the top of the consumable (e.g. a salt block) when it is
             full: reported as 100% remaining. The sensor's specified minimum range is 40 mm;
-            closer readings are less reliable.
+            closer readings are less reliable. This is the default only: a Matter ResetCondition
+            (Home Assistant "Reset filter condition" button) takes the current distance as the
+            new full point and keeps it in NVS.
 
     config VL53L1X_LEVEL_HEIGHT_MM
         int "VL53L1X level height, full to empty (mm)"

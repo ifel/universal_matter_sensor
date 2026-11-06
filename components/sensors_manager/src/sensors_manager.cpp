@@ -185,6 +185,13 @@ void SensorsManager::setReadingListener(const Sensor::ReadingListener& listener)
     }
 }
 
+void SensorsManager::requestCalibration(const SensorType sensor_type) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+    if (auto* sensor = sensors_by_type_[toIndex(sensor_type)]; sensor != nullptr) {
+        sensor->requestCalibration(sensor_type);
+    }
+}
+
 bool SensorsManager::isSensorsDetected() const {
     return !active_sensors_.empty();
 }

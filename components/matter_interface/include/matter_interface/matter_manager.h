@@ -16,6 +16,7 @@ class MatterManager {
     struct Listeners {
         std::function<void(bool)> on_commissioning_window; // true while the window is open
         std::function<void(bool)> on_identify;             // true while identifying
+        std::function<void()> on_remaining_level_reset;    // ResetCondition (e.g. HA button)
     };
 
     MatterManager() = default;

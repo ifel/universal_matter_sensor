@@ -172,6 +172,8 @@ extern "C" void app_main() {
     matter_manager.setListeners({
         .on_commissioning_window = [&status_led](bool open) { status_led.setCommissioning(open); },
         .on_identify = [&status_led](bool identifying) { status_led.setIdentifying(identifying); },
+        .on_remaining_level_reset =
+            [&sensors_manager] { sensors_manager.requestCalibration(SensorType::REMAINING_LEVEL); },
     });
     err = matter_manager.init(sensors_manager.getRanges());
     if (err != ESP_OK) {

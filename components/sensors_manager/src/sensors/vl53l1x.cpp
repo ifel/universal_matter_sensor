@@ -6,6 +6,7 @@
 
 #include <esp_check.h>
 #include <i2cdev.h>
+#include <nvs.h>
 
 #include "i2c_bus.h"
 
@@ -13,7 +14,6 @@ constexpr const char* tag = "sensor_vl53l1x";
 
 // VL53L1X Sensor Configuration (from Kconfig)
 constexpr uint8_t i2c_address = 0x29; // power-on default, shared with TSL2591
-constexpr auto full_distance_mm = static_cast<float>(CONFIG_VL53L1X_FULL_DISTANCE_MM);
 constexpr auto level_height_mm = static_cast<float>(CONFIG_VL53L1X_LEVEL_HEIGHT_MM);
 static_assert(CONFIG_VL53L1X_LEVEL_HEIGHT_MM > 0, "VL53L1X level height must be positive");
 
@@ -32,7 +32,10 @@ constexpr size_t samples_per_read = 5;
 constexpr size_t max_attempts = 3 * samples_per_read;
 constexpr uint32_t sample_timeout_ms = 500;
 
-float toRemainingPercent(float distance_mm) {
+constexpr const char* nvs_namespace = "vl53l1x";
+constexpr const char* nvs_full_key = "full_mm";
+
+float toRemainingPercent(float full_distance_mm, float distance_mm) {
     const float remaining = (full_distance_mm + level_height_mm - distance_mm) / level_height_mm;
     return std::clamp(remaining * 100.0F, 0.0F, 100.0F);
 }
@@ -63,6 +66,7 @@ esp_err_t Vl53l1x::init(int64_t /*read_interval_ms*/) {
     ESP_RETURN_ON_FALSE(!initialized_, ESP_OK, tag, "The sensor is already initialized");
 
     ESP_LOGI(tag, "Initializing sensor...");
+    loadFullDistance();
 
     // Safe to call from every I2C driver: i2cdev_init() is a no-op after the first call.
     auto ret = i2cdev_init();
@@ -93,10 +97,10 @@ esp_err_t Vl53l1x::init(int64_t /*read_interval_ms*/) {
 
     initialized_ = true;
     ESP_LOGI(tag,
-             "Sensor initialized: %s (full at %d mm, empty at %d mm).",
+             "Sensor initialized: %s (full at %u mm, empty at %u mm).",
              getModelName(),
-             CONFIG_VL53L1X_FULL_DISTANCE_MM,
-             CONFIG_VL53L1X_FULL_DISTANCE_MM + CONFIG_VL53L1X_LEVEL_HEIGHT_MM);
+             full_distance_mm_,
+             full_distance_mm_ + CONFIG_VL53L1X_LEVEL_HEIGHT_MM);
 
     return ESP_OK;
 
@@ -171,10 +175,42 @@ esp_err_t Vl53l1x::read(SensorReadings& readings, const SensorReadings& /*compen
                         static_cast<unsigned int>(samples_per_read));
 
     std::ranges::sort(distances);
-    const auto distance_mm = static_cast<float>(distances[samples_per_read / 2]);
-    const float remaining = toRemainingPercent(distance_mm);
+    const auto median_mm = distances[samples_per_read / 2];
+    if (calibration_requested_.exchange(false)) {
+        full_distance_mm_ = median_mm;
+        saveFullDistance();
+        ESP_LOGI(tag, "Full point set to %u mm", full_distance_mm_);
+    }
+    const auto distance_mm = static_cast<float>(median_mm);
+    const float remaining = toRemainingPercent(static_cast<float>(full_distance_mm_), distance_mm);
     ESP_LOGI(tag, "Distance %.0f mm -> remaining %.1f %%", distance_mm, remaining);
 
     at<SensorType::REMAINING_LEVEL>(readings) = remaining;
     return ESP_OK;
+}
+
+void Vl53l1x::requestCalibration(SensorType type) {
+    if (type == SensorType::REMAINING_LEVEL) { calibration_requested_ = true; }
+}
+
+void Vl53l1x::loadFullDistance() {
+    nvs_handle_t handle = 0;
+    if (nvs_open(nvs_namespace, NVS_READONLY, &handle) != ESP_OK) { return; } // never taught
+    uint16_t value = 0;
+    if (nvs_get_u16(handle, nvs_full_key, &value) == ESP_OK) {
+        full_distance_mm_ = value;
+        ESP_LOGI(tag, "Full point %u mm from NVS", value);
+    }
+    nvs_close(handle);
+}
+
+void Vl53l1x::saveFullDistance() const {
+    nvs_handle_t handle = 0;
+    auto ret = nvs_open(nvs_namespace, NVS_READWRITE, &handle);
+    if (ret == ESP_OK) {
+        ret = nvs_set_u16(handle, nvs_full_key, full_distance_mm_);
+        if (ret == ESP_OK) { ret = nvs_commit(handle); }
+        nvs_close(handle);
+    }
+    if (ret != ESP_OK) { ESP_LOGE(tag, "Failed to save the full point: %s", esp_err_to_name(ret)); }
 }

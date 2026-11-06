@@ -81,6 +81,46 @@ void notifyIdentify(bool identifying) {
     }
 }
 
+// Remaining level endpoint, for attaching the reset delegate once the server is up.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::optional<uint16_t> s_remaining_level_endpoint_id;
+
+// Registry entry for HEPA Filter Monitoring is exactly a ResourceMonitoringCluster.
+ResourceMonitoring::ResourceMonitoringCluster* getRemainingLevelCluster(uint16_t endpoint_id) {
+    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+        ConcreteClusterPath(endpoint_id, HepaFilterMonitoring::Id));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+    return static_cast<ResourceMonitoring::ResourceMonitoringCluster*>(cluster);
+}
+
+// The SDK resets Condition to 100; the listener re-teaches the "full" point.
+class RemainingLevelResetDelegate : public ResourceMonitoring::Delegate {
+  public:
+    CHIP_ERROR Init() override {
+        return CHIP_NO_ERROR;
+    }
+    chip::Protocols::InteractionModel::Status PostResetCondition() override {
+        ESP_LOGI(tag, "Remaining level reset requested");
+        if (s_listeners != nullptr && s_listeners->on_remaining_level_reset) {
+            s_listeners->on_remaining_level_reset();
+        }
+        return chip::Protocols::InteractionModel::Status::Success;
+    }
+};
+
+// Must outlive the cluster; the cluster dereferences it on every ResetCondition.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+RemainingLevelResetDelegate s_remaining_level_delegate;
+
+// Clusters are constructed during server init, so this runs on kServerReady.
+void attachRemainingLevelDelegate() {
+    if (!s_remaining_level_endpoint_id.has_value()) { return; }
+    auto* cluster = getRemainingLevelCluster(*s_remaining_level_endpoint_id);
+    if (cluster == nullptr || cluster->SetDelegate(&s_remaining_level_delegate) != CHIP_NO_ERROR) {
+        ESP_LOGE(tag, "Failed to attach the remaining level reset delegate");
+    }
+}
+
 // Power Source endpoint and the endpoints it powers, set by init() for kServerReady.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<uint16_t> s_power_source_endpoint_id;
@@ -188,6 +228,7 @@ void matterEventCallback(const ChipDeviceEvent* event, intptr_t /*arg*/) {
     case DeviceEventType::kServerReady:
         ESP_LOGI(tag, "Server is ready");
         setPowerSourceEndpointList();
+        attachRemainingLevelDelegate();
         break;
     case DeviceEventType::kCommissioningComplete:
         ESP_LOGI(tag, "Commissioning complete");
@@ -785,7 +826,9 @@ std::optional<uint16_t> createRemainingLevelEndpoint(esp_matter::node_t* matter_
         static_cast<uint8_t>(ResourceMonitoring::DegradationDirectionEnum::kDown);
     if (hepa_cluster == nullptr ||
         esp_matter::cluster::hepa_filter_monitoring::feature::condition::add(
-            hepa_cluster, &condition_config) != ESP_OK) {
+            hepa_cluster, &condition_config) != ESP_OK ||
+        esp_matter::cluster::hepa_filter_monitoring::command::create_reset_condition(
+            hepa_cluster) == nullptr) {
         ESP_LOGE(tag, "Failed to attach HEPA Filter Monitoring cluster to endpoint.");
         return std::nullopt;
     }
@@ -803,16 +846,12 @@ esp_err_t updateRemainingLevel(const std::optional<uint16_t> endpoint_id,
         return ESP_OK;
     }
 
-    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
-        ConcreteClusterPath(*endpoint_id, HepaFilterMonitoring::Id));
-    if (cluster == nullptr) {
+    auto* resource_cluster = getRemainingLevelCluster(*endpoint_id);
+    if (resource_cluster == nullptr) {
         ESP_LOGE(tag, "HEPA filter monitoring cluster not found for endpoint %u", *endpoint_id);
         return ESP_ERR_NOT_FOUND;
     }
 
-    // Registry entry for this cluster id is registered as exactly ResourceMonitoringCluster.
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-    auto* resource_cluster = static_cast<ResourceMonitoring::ResourceMonitoringCluster*>(cluster);
     const auto condition =
         static_cast<uint8_t>(std::lround(std::clamp(*remaining_percent, 0.0F, 100.0F)));
     if (resource_cluster->GetCondition() == condition) { return ESP_OK; }
@@ -1173,6 +1212,7 @@ MatterManager::init(const SensorRanges& ranges) {
             ESP_LOGE(tag, "Failed to initialize remaining level sensor.");
             return ESP_FAIL;
         }
+        s_remaining_level_endpoint_id = measurement.endpoint_id;
     }
 
     if (const auto& range = at<SensorType::OCCUPANCY>(ranges)) {
