@@ -260,6 +260,6 @@ direct_dependencies:
 - espressif/mdns
 - grrtzm/vl53l1x_library
 - idf
-manifest_hash: b987cf9aa1a829841aca6a895e33535ffa3b14414d692e43b7bb4df639e1402e
+manifest_hash: c7310aa5de131159cb8dfeb357c870161b051972bf747773f2dd6d6ba3ac813d
 target: esp32c6
 version: 3.0.0

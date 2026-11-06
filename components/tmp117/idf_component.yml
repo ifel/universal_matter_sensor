@@ -1,0 +1,8 @@
+## IDF Component Manager Manifest File
+description: TI TMP117 / TMP119 high-accuracy temperature sensor driver on esp-idf-lib i2cdev
+license: MIT
+dependencies:
+  idf:
+    version: '>=6.1.0'
+  esp-idf-lib/i2cdev: '*'
+  esp-idf-lib/esp_idf_lib_helpers: '*'
