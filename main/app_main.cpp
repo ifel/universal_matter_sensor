@@ -3,6 +3,7 @@
 
 // Provides CHIP_DEVICE_CONFIG_ENABLE_THREAD used below.
 #include <esp_matter.h>
+#include <esp_task_wdt.h>
 #include <esp_timer.h>
 
 #include "esp_err.h"
@@ -26,6 +27,9 @@ constexpr int64_t sensor_read_delay_ms =
 
 constexpr uint32_t restart_delay_ms = 10000;
 
+// Watchdog slack on top of one read interval (sensor init, slow reads).
+constexpr uint32_t watchdog_margin_ms = 60000;
+
 namespace {
 // Logs the reason and reboots so a transient fault (wiring, power) can recover.
 [[noreturn]] void restartAfterFailure(const char* reason) {
@@ -33,6 +37,25 @@ namespace {
         tag, "%s. Restarting in %u ms...", reason, static_cast<unsigned int>(restart_delay_ms));
     vTaskDelay(pdMS_TO_TICKS(restart_delay_ms));
     esp_restart();
+}
+
+// Reboots (via panic) if this task stops feeding the watchdog, e.g. a driver blocked on I2C.
+void subscribeToWatchdog() {
+    uint32_t idle_core_mask = 0;
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    idle_core_mask |= 1U << 0;
+#endif
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+    idle_core_mask |= 1U << 1;
+#endif
+    const esp_task_wdt_config_t config = {
+        .timeout_ms = static_cast<uint32_t>(sensor_read_delay_ms) + watchdog_margin_ms,
+        .idle_core_mask = idle_core_mask,
+        .trigger_panic = true,
+    };
+    esp_err_t err = esp_task_wdt_reconfigure(&config);
+    if (err == ESP_OK) { err = esp_task_wdt_add(nullptr); }
+    if (err != ESP_OK) { ESP_LOGE(tag, "Task watchdog setup failed: %s", esp_err_to_name(err)); }
 }
 } // namespace
 
@@ -75,6 +98,8 @@ extern "C" void app_main() {
     set_openthread_platform_config(&config);
 #endif
 
+    subscribeToWatchdog();
+
     // Initialize SensorsManager
     SensorsManager sensors_manager;
     if (sensors_manager.init(sensor_read_delay_ms) != ESP_OK) {
@@ -104,6 +129,7 @@ extern "C" void app_main() {
     SensorReadings compensations{};
     // Sensor read loop
     while (true) {
+        esp_task_wdt_reset();
         const int64_t cycle_start_us = esp_timer_get_time();
         err = sensors_manager.readValues(compensations);
         if (err != ESP_OK) {
