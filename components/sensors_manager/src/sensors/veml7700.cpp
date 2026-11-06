@@ -72,6 +72,7 @@ std::optional<SensorValueRange> Veml7700::getValueRangeForType(SensorType type) 
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
+    case SensorType::REMAINING_LEVEL:
         return std::nullopt;
     case SensorType::ILLUMINANCE:
         return SensorValueRange{.min = illum_min_lux,

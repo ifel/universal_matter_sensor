@@ -17,8 +17,8 @@ struct SensorValueRange {
 };
 
 // Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH, Carbon Dioxide
-// Concentration, ppm, Illuminance, Lux, TVOC Concentration, ppb, Air Quality, AirQualityLevel).
-// Keep AIR_QUALITY last, or update sensor_type_count.
+// Concentration, ppm, Illuminance, Lux, TVOC Concentration, ppb, Air Quality, AirQualityLevel,
+// Remaining Level, % of a consumable left). Keep REMAINING_LEVEL last, or update sensor_type_count.
 enum class SensorType : uint8_t {
     TEMPERATURE,
     PRESSURE,
@@ -26,10 +26,11 @@ enum class SensorType : uint8_t {
     CARBON_DIOXIDE_CONCENTRATION,
     ILLUMINANCE,
     TVOC_CONCENTRATION,
-    AIR_QUALITY
+    AIR_QUALITY,
+    REMAINING_LEVEL
 };
 
-inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::AIR_QUALITY) + 1;
+inline constexpr size_t sensor_type_count = static_cast<size_t>(SensorType::REMAINING_LEVEL) + 1;
 
 // Types published on the Matter Air Quality Sensor endpoint. AIR_QUALITY is not owned by a single
 // sensor: it is the worst value reported by the sensors owning any of these types.

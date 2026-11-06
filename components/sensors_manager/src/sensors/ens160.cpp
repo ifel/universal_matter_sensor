@@ -58,6 +58,7 @@ std::optional<SensorValueRange> Ens160::getValueRangeForType(SensorType type) co
     switch (type) {
     case SensorType::TEMPERATURE:
     case SensorType::PRESSURE:
+    case SensorType::REMAINING_LEVEL:
     case SensorType::RELATIVE_HUMIDITY:
     case SensorType::ILLUMINANCE:
         return std::nullopt;

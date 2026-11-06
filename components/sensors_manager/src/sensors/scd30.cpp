@@ -70,6 +70,7 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
     case SensorType::AIR_QUALITY:
         return SensorValueRange{
             .min = aq_min_level, .max = aq_max_level, .abs_threshold = aq_abs_threshold};
+    case SensorType::REMAINING_LEVEL:
     case SensorType::ILLUMINANCE:
     case SensorType::TVOC_CONCENTRATION:
         return std::nullopt;

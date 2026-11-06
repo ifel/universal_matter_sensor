@@ -1,6 +1,6 @@
 idf_component_register(
-        SRCS "src/sensors_manager.cpp" "src/sensors/bmp280_bme280.cpp" "src/sensors/sht4x.cpp" "src/sensors/scd30.cpp" "src/sensors/veml7700.cpp" "src/sensors/ens160.cpp" "src/sensors/bmp581.cpp" "src/sensors/tsl2591.cpp"
+        SRCS "src/sensors_manager.cpp" "src/sensors/bmp280_bme280.cpp" "src/sensors/sht4x.cpp" "src/sensors/scd30.cpp" "src/sensors/veml7700.cpp" "src/sensors/ens160.cpp" "src/sensors/bmp581.cpp" "src/sensors/tsl2591.cpp" "src/sensors/vl53l1x.cpp"
         INCLUDE_DIRS "include"
         REQUIRES common_types
-        PRIV_REQUIRES log esp-idf-lib__bmp280 esp-idf-lib__sht4x esp-idf-lib__scd30 esp-idf-lib__veml7700 esp-idf-lib__tsl2591 ens160 bmp5
+        PRIV_REQUIRES log esp-idf-lib__bmp280 esp-idf-lib__sht4x esp-idf-lib__scd30 esp-idf-lib__veml7700 esp-idf-lib__tsl2591 esp-idf-lib__i2cdev grrtzm__vl53l1x_library ens160 bmp5
 )

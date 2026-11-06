@@ -11,6 +11,7 @@
 #include "sensors/sht4x.h"
 #include "sensors/tsl2591.h"
 #include "sensors/veml7700.h"
+#include "sensors/vl53l1x.h"
 
 constexpr const char* tag = "   ***sensors_manager***   ";
 
@@ -40,12 +41,15 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     }
 
     // Add new sensor drivers here.
-    std::array<std::unique_ptr<Sensor>, 7> candidates = {std::make_unique<Sht4x>(),
+    std::array<std::unique_ptr<Sensor>, 8> candidates = {std::make_unique<Sht4x>(),
                                                          std::make_unique<Bmp581>(),
                                                          std::make_unique<Bmp280Bme280>(),
                                                          std::make_unique<Scd30>(),
                                                          std::make_unique<Ens160>(),
                                                          std::make_unique<Veml7700>(),
+                                                         // Before Tsl2591: both use 0x29, and the
+                                                         // VL53L1X ID check writes to the bus.
+                                                         std::make_unique<Vl53l1x>(),
                                                          std::make_unique<Tsl2591>()};
 
     for (auto& sensor : candidates) {

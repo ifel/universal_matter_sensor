@@ -11,6 +11,7 @@
 #include <app/clusters/illuminance-measurement-server/IlluminanceMeasurementCluster.h>
 #include <app/clusters/pressure-measurement-server/PressureMeasurementCluster.h>
 #include <app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.h>
+#include <app/clusters/resource-monitoring-server/ResourceMonitoringCluster.h>
 #include <app/clusters/temperature-measurement-server/TemperatureMeasurementCluster.h>
 #include <app/server-cluster/ServerClusterInterfaceRegistry.h>
 #include <data_model_provider/esp_matter_data_model_provider.h>
@@ -684,6 +685,84 @@ std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matt
                               matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
                           "Illuminance");
 }
+
+// Remaining level (e.g. salt block) as HEPA Filter Monitoring "Condition": the only HA-mapped
+// "% of a consumable left" attribute. There is no fitting device type; Air Purifier is HEPA's home,
+// used without its Fan Control cluster so controllers don't show a dummy fan.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+std::optional<uint16_t> createRemainingLevelEndpoint(esp_matter::node_t* matter_node) {
+    static constexpr const char* type_name = "Remaining level";
+
+    auto* endpoint =
+        esp_matter::endpoint::create(matter_node, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    if (endpoint == nullptr) {
+        ESP_LOGE(tag, "Failed to create %s sensor endpoint.", type_name);
+        return std::nullopt;
+    }
+
+    esp_matter::cluster::descriptor::config_t descriptor_config;
+    esp_matter::cluster::identify::config_t identify_config;
+    if (esp_matter::cluster::descriptor::create(
+            endpoint, &descriptor_config, esp_matter::CLUSTER_FLAG_SERVER) == nullptr ||
+        esp_matter::endpoint::add_device_type(
+            endpoint,
+            esp_matter::endpoint::air_purifier::get_device_type_id(),
+            esp_matter::endpoint::air_purifier::get_device_type_version()) != ESP_OK ||
+        esp_matter::cluster::identify::create(
+            endpoint, &identify_config, esp_matter::CLUSTER_FLAG_SERVER) == nullptr) {
+        ESP_LOGE(tag, "Failed to set up %s endpoint.", type_name);
+        return std::nullopt;
+    }
+
+    esp_matter::cluster::hepa_filter_monitoring::config_t hepa_config;
+    auto* hepa_cluster = esp_matter::cluster::hepa_filter_monitoring::create(
+        endpoint, &hepa_config, esp_matter::CLUSTER_FLAG_SERVER);
+    esp_matter::cluster::hepa_filter_monitoring::feature::condition::config_t condition_config;
+    condition_config.condition = 100;
+    condition_config.degradation_direction =
+        static_cast<uint8_t>(ResourceMonitoring::DegradationDirectionEnum::kDown);
+    if (hepa_cluster == nullptr ||
+        esp_matter::cluster::hepa_filter_monitoring::feature::condition::add(
+            hepa_cluster, &condition_config) != ESP_OK) {
+        ESP_LOGE(tag, "Failed to attach HEPA Filter Monitoring cluster to endpoint.");
+        return std::nullopt;
+    }
+
+    return finishEndpoint(endpoint, type_name);
+}
+
+// Condition is a whole, non-nullable percent: an unavailable reading keeps the last value.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t updateRemainingLevel(const std::optional<uint16_t> endpoint_id,
+                               const std::optional<float> remaining_percent) {
+    if (!endpoint_id.has_value()) { return ESP_OK; }
+    if (!remaining_percent.has_value() || !std::isfinite(*remaining_percent)) {
+        ESP_LOGW(tag, "Remaining level is not available, keeping the last value");
+        return ESP_OK;
+    }
+
+    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+        ConcreteClusterPath(*endpoint_id, HepaFilterMonitoring::Id));
+    if (cluster == nullptr) {
+        ESP_LOGE(tag, "HEPA filter monitoring cluster not found for endpoint %u", *endpoint_id);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    // Registry entry for this cluster id is registered as exactly ResourceMonitoringCluster.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+    auto* resource_cluster = static_cast<ResourceMonitoring::ResourceMonitoringCluster*>(cluster);
+    const auto condition =
+        static_cast<uint8_t>(std::lround(std::clamp(*remaining_percent, 0.0F, 100.0F)));
+    if (resource_cluster->GetCondition() == condition) { return ESP_OK; }
+
+    if (resource_cluster->UpdateCondition(condition) !=
+        chip::Protocols::InteractionModel::Status::Success) {
+        ESP_LOGE(tag, "Failed to update remaining level to %u %%", condition);
+        return ESP_ERR_NOT_FINISHED;
+    }
+    ESP_LOGI(tag, "Updating remaining level to %u %%", condition);
+    return ESP_OK;
+}
 } // namespace
 
 esp_err_t
@@ -805,6 +884,16 @@ MatterManager::init(const SensorRanges& ranges) {
                                             matterScaleIlluminance(range->max, *range));
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize illuminance sensor.");
+            return ESP_FAIL;
+        }
+    }
+
+    if (const auto& range = at<SensorType::REMAINING_LEVEL>(ranges)) {
+        auto& measurement = at<SensorType::REMAINING_LEVEL>(measurements_);
+        measurement.range = range;
+        measurement.endpoint_id = createRemainingLevelEndpoint(matter_node);
+        if (!measurement.endpoint_id) {
+            ESP_LOGE(tag, "Failed to initialize remaining level sensor.");
             return ESP_FAIL;
         }
     }
@@ -967,6 +1056,10 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
                                                         matterScaleIlluminance,
                                                         "illuminance",
                                                         IlluminanceMeasurement::Id);
+    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    result = updateRemainingLevel(at<SensorType::REMAINING_LEVEL>(measurements_).endpoint_id,
+                                  at<SensorType::REMAINING_LEVEL>(values));
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
 
     return ret;

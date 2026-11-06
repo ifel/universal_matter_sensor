@@ -120,6 +120,7 @@ extern "C" void app_main() {
         const auto& illuminance = at<SensorType::ILLUMINANCE>(readings);
         const auto& tvoc_concentration = at<SensorType::TVOC_CONCENTRATION>(readings);
         const auto& air_quality = at<SensorType::AIR_QUALITY>(readings);
+        const auto& remaining_level = at<SensorType::REMAINING_LEVEL>(readings);
         if (temperature.has_value()) {
             ESP_LOGI(tag,
                      "Temperature = %.2f°C from %s",
@@ -162,6 +163,12 @@ extern "C" void app_main() {
                      "Air Quality = %.0f (1 good .. 6 extremely poor) from %s",
                      *air_quality,
                      sensors_manager.getSensorModelNameForType(SensorType::AIR_QUALITY));
+        }
+        if (remaining_level.has_value()) {
+            ESP_LOGI(tag,
+                     "Remaining Level = %.1f %% from %s",
+                     *remaining_level,
+                     sensors_manager.getSensorModelNameForType(SensorType::REMAINING_LEVEL));
         }
 
         compensations = readings;

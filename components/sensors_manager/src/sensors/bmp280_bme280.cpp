@@ -50,6 +50,7 @@ std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType ty
     case SensorType::ILLUMINANCE:
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
+    case SensorType::REMAINING_LEVEL:
         return std::nullopt;
     }
     return std::nullopt;

@@ -59,6 +59,19 @@ constexpr float sensitivity(const step_t& step) {
     return step.gain_factor * static_cast<float>(step.it_ms);
 }
 
+// ID register via a normal command transaction (the driver does not check the ID; 0x29 is shared
+// with VL53L1X).
+constexpr uint8_t id_register_command = 0xA0 | 0x12;
+constexpr uint8_t tsl2591_chip_id = 0x50;
+
+esp_err_t readChipId(i2c_dev_t* dev, uint8_t* chip_id) {
+    I2C_DEV_TAKE_MUTEX(dev); // NOLINT(readability-identifier-length,misc-const-correctness)
+    // NOLINTNEXTLINE(readability-identifier-length,misc-const-correctness)
+    I2C_DEV_CHECK(dev, i2c_dev_read_reg(dev, id_register_command, chip_id, 1));
+    I2C_DEV_GIVE_MUTEX(dev); // NOLINT(readability-identifier-length,misc-const-correctness)
+    return ESP_OK;
+}
+
 constexpr float saturation_fraction = 0.9F; // step down above this share of full scale
 constexpr float target_fraction = 0.5F;     // step up only if the result stays below this
 } // namespace
@@ -81,6 +94,7 @@ std::optional<SensorValueRange> Tsl2591::getValueRangeForType(SensorType type) c
     case SensorType::CARBON_DIOXIDE_CONCENTRATION:
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
+    case SensorType::REMAINING_LEVEL:
         return std::nullopt;
     case SensorType::ILLUMINANCE:
         return SensorValueRange{.min = illum_min_lux,
@@ -104,6 +118,19 @@ esp_err_t Tsl2591::init(int64_t /*read_interval_ms*/) {
 
     ret = tsl2591_init_desc(&sensor_, i2c_port, sda_gpio, scl_gpio);
     ESP_RETURN_ON_ERROR(ret, tag, "initialization failed on init_desc: %s", esp_err_to_name(ret));
+
+    uint8_t chip_id = 0;
+    ret = readChipId(&sensor_.i2c_dev, &chip_id);
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto)
+    ESP_GOTO_ON_ERROR(
+        ret, cleanup, tag, "initialization failed on reading chip ID: %s", esp_err_to_name(ret));
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto)
+    ESP_GOTO_ON_FALSE(chip_id == tsl2591_chip_id,
+                      ESP_ERR_NOT_FOUND,
+                      cleanup,
+                      tag,
+                      "unexpected chip ID 0x%02x at 0x29 (not a TSL2591)",
+                      chip_id);
 
     ret = tsl2591_init(&sensor_);
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto)

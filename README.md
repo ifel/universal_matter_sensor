@@ -1,6 +1,6 @@
-# Matter-Based Multi-Sensor (SHT4x, BMP581, BME280 / BMP280, SCD30, ENS160, VEML7700, TSL2591) for Temperature, Humidity, Pressure, CO₂, TVOC, Air Quality, and Illuminance
+# Matter-Based Multi-Sensor (SHT4x, BMP581, BME280 / BMP280, SCD30, ENS160, VEML7700, TSL2591, VL53L1X) for Temperature, Humidity, Pressure, CO₂, TVOC, Air Quality, and Illuminance
 
-This project implements a Matter-compatible **Temperature**, **Relative Humidity**, **Pressure**, **Carbon Dioxide (CO₂) Concentration**, **Total Volatile Organic Compounds (TVOC) Concentration**, **Air Quality**, and **Illuminance (Ambient Light)** sensor on ESP32 microcontrollers (such as ESP32-C6, ESP32-H2, or ESP32) using **ESP-Matter** and the [`esp-idf-lib/sht4x`](https://components.espressif.com/components/esp-idf-lib/sht4x), [`esp-idf-lib/bmp280`](https://components.espressif.com/components/esp-idf-lib/bmp280), [`esp-idf-lib/scd30`](https://components.espressif.com/components/esp-idf-lib/scd30), and [`esp-idf-lib/veml7700`](https://components.espressif.com/components/esp-idf-lib/veml7700), and [`esp-idf-lib/tsl2591`](https://components.espressif.com/components/esp-idf-lib/tsl2591) components from the ESP Component Registry, plus two local drivers on the esp-idf-lib `i2cdev` bus layer: [`ens160`](components/ens160) (a port of [`k0i05/esp_ens160`](https://components.espressif.com/components/k0i05/esp_ens160)) and [`bmp5`](components/bmp5) (Bosch's [BMP5 SensorAPI](https://github.com/boschsensortec/BMP5_SensorAPI) with `i2cdev` glue).
+This project implements a Matter-compatible **Temperature**, **Relative Humidity**, **Pressure**, **Carbon Dioxide (CO₂) Concentration**, **Total Volatile Organic Compounds (TVOC) Concentration**, **Air Quality**, **Illuminance (Ambient Light)**, and **Remaining Level** (e.g. a water softener's salt block, via a ToF distance sensor) sensor on ESP32 microcontrollers (such as ESP32-C6, ESP32-H2, or ESP32) using **ESP-Matter** and the [`esp-idf-lib/sht4x`](https://components.espressif.com/components/esp-idf-lib/sht4x), [`esp-idf-lib/bmp280`](https://components.espressif.com/components/esp-idf-lib/bmp280), [`esp-idf-lib/scd30`](https://components.espressif.com/components/esp-idf-lib/scd30), and [`esp-idf-lib/veml7700`](https://components.espressif.com/components/esp-idf-lib/veml7700), and [`esp-idf-lib/tsl2591`](https://components.espressif.com/components/esp-idf-lib/tsl2591) components (plus [`grrtzm/vl53l1x_library`](https://components.espressif.com/components/grrtzm/vl53l1x_library), ST's VL53L1X ULP driver) from the ESP Component Registry, plus two local drivers on the esp-idf-lib `i2cdev` bus layer: [`ens160`](components/ens160) (a port of [`k0i05/esp_ens160`](https://components.espressif.com/components/k0i05/esp_ens160)) and [`bmp5`](components/bmp5) (Bosch's [BMP5 SensorAPI](https://github.com/boschsensortec/BMP5_SensorAPI) with `i2cdev` glue).
 
 It supports the following I2C sensors (individually or combined on the same I2C bus), listed in priority order for overlapping measurement types. Sensors are ordered by the accuracy of their main measurement, most accurate first. For example, the **SCD30**'s NDIR CO₂ is a true measurement and far more accurate than the **ENS160**'s estimated eCO₂, so the SCD30 is probed first:
 
@@ -13,6 +13,7 @@ It supports the following I2C sensors (individually or combined on the same I2C 
 5. **ENS160**: Equivalent CO₂ (eCO₂), TVOC (`ppb`), and Air Quality (from the sensor's UBA index)
 6. **VEML7700**: Illuminance (Ambient Light in `lx`)
 7. **TSL2591**: Illuminance (Ambient Light in `lx`, IR-compensated, better in low light; up to ~88,000 lx)
+8. **VL53L1X**: Remaining Level (`%`), computed on the device from a time-of-flight distance (see [Remaining Level](#remaining-level-vl53l1x))
 
 When multiple sensors are connected on the I2C bus, higher-priority sensors supersede lower-priority ones for any overlapping measurement types (`SHT4x` > `BMP581` > `BME280 / BMP280` > `SCD30` > `ENS160`, and `VEML7700` > `TSL2591`), while unique measurements (**Pressure** from `BMP581` or `BMP280 / BME280`, **Relative Humidity** from a `BME280` paired with a `BMP581`, **CO₂** from `SCD30` (or `ENS160` without an `SCD30`), **TVOC** from `ENS160`, **Illuminance** from `VEML7700` (or `TSL2591` without a `VEML7700`), or **Relative Humidity** from `SCD30` when paired only with a `BMP280`) are still taken from the sensor that provides them. Additionally, when a pressure sensor (`BMP581` or `BMP280 / BME280`) is present alongside an `SCD30`, barometric pressure readings are used to dynamically compensate `SCD30` CO₂ measurements, and temperature/humidity readings compensate `ENS160` measurements. **Air Quality** is not owned by a single sensor: every active sensor that provides CO₂ or TVOC and reports an air quality level contributes, and the **worst** level is published (`SCD30` derives it from CO₂, `ENS160` reports its UBA index).
 
@@ -39,6 +40,7 @@ When multiple sensors are connected on the I2C bus, higher-priority sensors supe
   - **ScioSense ENS160** Digital Metal-Oxide Multi-Gas (eCO₂ / TVOC / AQI) Sensor module (e.g., SparkFun / Adafruit ENS160)
   - **Vishay VEML7700** Ambient Light (Lux) Sensor module (e.g., Adafruit VEML7700)
   - **ams TSL2591** High Dynamic Range Light (Lux) Sensor module (e.g., Adafruit TSL2591)
+  - **ST VL53L1X** Time-of-Flight Distance Sensor module (e.g., Pololu / Adafruit / SparkFun VL53L1X)
 - Breadboard and connecting wires
 - 3.3V power supply
 
@@ -46,7 +48,7 @@ When multiple sensors are connected on the I2C bus, higher-priority sensors supe
 
 - **ESP-IDF >= 6.1.0**
 - **ESP-Matter**
-- **`esp-idf-lib/bmp280`**, **`esp-idf-lib/sht4x`**, **`esp-idf-lib/scd30`**, **`esp-idf-lib/veml7700`**, & **`esp-idf-lib/tsl2591`** (automatically fetched via the IDF Component Manager from [`components/sensors_manager/idf_component.yml`](components/sensors_manager/idf_component.yml))
+- **`esp-idf-lib/bmp280`**, **`esp-idf-lib/sht4x`**, **`esp-idf-lib/scd30`**, **`esp-idf-lib/veml7700`**, **`esp-idf-lib/tsl2591`**, & **`grrtzm/vl53l1x_library`** (automatically fetched via the IDF Component Manager from [`components/sensors_manager/idf_component.yml`](components/sensors_manager/idf_component.yml))
 
 ---
 
@@ -75,21 +77,21 @@ Ensure both ESP-IDF and ESP-Matter environments are exported in your terminal se
 
 ---
 
-## Wiring (Seeed Studio XIAO ESP32C6 + SHT4x / BMP581 / BME280 / BMP280 / SCD30 / ENS160 / VEML7700 / TSL2591)
+## Wiring (Seeed Studio XIAO ESP32C6 + SHT4x / BMP581 / BME280 / BMP280 / SCD30 / ENS160 / VEML7700 / TSL2591 / VL53L1X)
 
-Connect one or more supported sensor modules (**SHT4x**, **BMP581**, **BME280 / BMP280**, **SCD30**, **ENS160**, **VEML7700**, **TSL2591**) in parallel to the **Seeed Studio XIAO ESP32C6** hardware I2C pins:
+Connect one or more supported sensor modules (**SHT4x**, **BMP581**, **BME280 / BMP280**, **SCD30**, **ENS160**, **VEML7700**, **TSL2591**, **VL53L1X**) in parallel to the **Seeed Studio XIAO ESP32C6** hardware I2C pins:
 
-| Sensor Pin (SHT4x / BMP581 / BME280 / BMP280 / SCD30 / ENS160 / VEML7700 / TSL2591) | XIAO ESP32C6 Pin | ESP32-C6 GPIO | Notes |
+| Sensor Pin (SHT4x / BMP581 / BME280 / BMP280 / SCD30 / ENS160 / VEML7700 / TSL2591 / VL53L1X) | XIAO ESP32C6 Pin | ESP32-C6 GPIO | Notes |
 | --- | --- | --- | --- |
 | **VIN** (or **3Vo**) | **3V3** | — | 3.3V power supply |
 | **GND** | **GND** | — | Common ground |
 | **SDA** / **SDI** | **D4** (SDA) | **GPIO22** | Configurable via `CONFIG_SENSORS_I2C_SDA_GPIO` |
 | **SCL** / **SCK** | **D5** (SCL) | **GPIO23** | Configurable via `CONFIG_SENSORS_I2C_SCL_GPIO` |
-| **SDO** *(BMP280/BME280 only)* | Unconnected | — | Pulled high on Adafruit module → default I2C address **`0x77`**. Connect to `GND` for `0x76` (`CONFIG_BMP280_I2C_ADDRESS`). **BMP581** uses **`0x47`** by default (SDO high on Adafruit / SparkFun modules; `0x46` with SDO to `GND`, `CONFIG_BMP581_I2C_ADDRESS`). **SHT4x** uses fixed I2C address **`0x44`**, **SCD30** uses fixed I2C address **`0x61`**, **ENS160** uses **`0x53`** by default (ADDR high; `0x52` with ADDR to `GND`, `CONFIG_ENS160_I2C_ADDRESS`), and **VEML7700** uses fixed I2C address **`0x10`**, and **TSL2591** uses fixed I2C address **`0x29`**. |
+| **SDO** *(BMP280/BME280 only)* | Unconnected | — | Pulled high on Adafruit module → default I2C address **`0x77`**. Connect to `GND` for `0x76` (`CONFIG_BMP280_I2C_ADDRESS`). **BMP581** uses **`0x47`** by default (SDO high on Adafruit / SparkFun modules; `0x46` with SDO to `GND`, `CONFIG_BMP581_I2C_ADDRESS`). **SHT4x** uses fixed I2C address **`0x44`**, **SCD30** uses fixed I2C address **`0x61`**, **ENS160** uses **`0x53`** by default (ADDR high; `0x52` with ADDR to `GND`, `CONFIG_ENS160_I2C_ADDRESS`), and **VEML7700** uses fixed I2C address **`0x10`**, and **TSL2591** uses fixed I2C address **`0x29`**, and **VL53L1X** defaults to **`0x29`** too (so it can't share a bus with a TSL2591). |
 
 ### Auto-Detection & Sensor Priority
 
-At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sht4x` → `Bmp581` → `Bmp280Bme280` → `Scd30` → `Ens160` → `Veml7700` → `Tsl2591`**) and assigns each `SensorType` to the first detected sensor that provides it. `MatterManager` then dynamically creates only the Matter endpoints/clusters for the detected measurement types. CO₂, TVOC, and Air Quality share a single **Air Quality Sensor** endpoint; each cluster on it is populated only when a sensor provides that type. Air Quality is the worst level reported by the sensors that provide CO₂ or TVOC:
+At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sht4x` → `Bmp581` → `Bmp280Bme280` → `Scd30` → `Ens160` → `Veml7700` → `Vl53l1x` → `Tsl2591`**) and assigns each `SensorType` to the first detected sensor that provides it. `MatterManager` then dynamically creates only the Matter endpoints/clusters for the detected measurement types. CO₂, TVOC, and Air Quality share a single **Air Quality Sensor** endpoint; each cluster on it is populated only when a sensor provides that type. Air Quality is the worst level reported by the sensors that provide CO₂ or TVOC:
 
 | Connected Sensor(s) | Temperature (`0x0402`) | Relative Humidity (`0x0405`) | Pressure (`0x0403`) | CO₂ (`0x040D`) | TVOC (`0x042E`) | Air Quality (`0x005B`) | Illuminance (`0x0400`) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -113,6 +115,15 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sh
 | **SCD30 + ENS160** | **SCD30** | **SCD30** | *Not created* | **SCD30** *(supersedes ENS160)* | **ENS160** | Worst of **SCD30** & **ENS160** | *Not created* |
 | **SHT4x + BMP581 + SCD30 + ENS160 + VEML7700** | **SHT4x** *(supersedes all)* | **SHT4x** *(supersedes all)* | **BMP581** | **SCD30** *(pressure-compensated)* | **ENS160** | Worst of **SCD30** & **ENS160** | **VEML7700** |
 
+### Remaining Level (VL53L1X)
+
+The **VL53L1X** measures the distance to a consumable (e.g. the top of a water softener's salt block) and the device converts it to **% remaining**: `CONFIG_VL53L1X_FULL_DISTANCE_MM` (default `30`) is 100%, `FULL_DISTANCE + CONFIG_VL53L1X_LEVEL_HEIGHT_MM` (default `30 + 290 = 320 mm`) is 0%, linear in between and clamped. Each reading is the median of 5 valid samples.
+
+- **Matter**: Matter has no distance or generic level cluster that Home Assistant supports, so the level is published as **HEPA Filter Monitoring `Condition`** (`0x0071`, whole percent, degradation direction *down*) on its own endpoint with the **Air Purifier** device type (without Fan Control, so no dummy fan appears). Home Assistant shows it as *"HEPA filter condition"* — rename the entity (e.g. "Salt remaining"). Until the first reading it reports `100 %`; an unavailable reading keeps the last value (`Condition` is not nullable).
+- **Field of view**: the sensor uses its narrowest ROI (4×4 SPADs, ~15° instead of 27°). The footprint diameter is ≈ `2 · d · tan(7.5°)`, i.e. ~84 mm at 320 mm — just inside an 85 × 85 mm block, so **mount the sensor centered above the block**.
+- **Minimum range**: the VL53L1X is specified from **40 mm**; a full block closer than that reads less reliably, so mount the sensor a bit higher if possible.
+- **I2C address `0x29`** is shared with the **TSL2591**: the two cannot be on the same bus. Both drivers check the chip ID, so the one that is present is detected correctly.
+
 > **Onboard Status LED**: Driven by the `status_led` component, the onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
 
 ---
@@ -121,7 +132,7 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Sh
 
 - [`main/`](main/app_main.cpp) — Application entry point (`app_main`): initializes NVS, Thread/Wi-Fi, `SensorsManager`, `StatusLed`, and `MatterManager` (restarting after 10 s if sensors or Matter fail to initialize), then periodically polls sensors, passes environmental compensations (such as barometric pressure for `SCD30`), and updates Matter cluster attributes.
 - [`components/common_types/`](components/common_types/include/common_types/common_types.h) — Shared [`SensorType`](components/common_types/include/common_types/common_types.h) enum (`TEMPERATURE`, `PRESSURE`, `RELATIVE_HUMIDITY`, `CARBON_DIOXIDE_CONCENTRATION`, `ILLUMINANCE`, `TVOC_CONCENTRATION`, `AIR_QUALITY`), `AirQualityLevel`, [`SensorValueRange`](components/common_types/include/common_types/common_types.h) struct (`°C`, `Pa`, `%RH`, `ppm`, `lx`, `ppb`), and `PerSensorType` containers.
-- [`components/sensors_manager/`](components/sensors_manager/include/sensors_manager/sensors_manager.h) — Abstract [`Sensor`](components/sensors_manager/include/sensors_manager/sensor.h) interface, [`Sht4x`](components/sensors_manager/src/sensors/sht4x.h), [`Bmp581`](components/sensors_manager/src/sensors/bmp581.h), [`Bmp280Bme280`](components/sensors_manager/src/sensors/bmp280_bme280.h), [`Scd30`](components/sensors_manager/src/sensors/scd30.h), [`Ens160`](components/sensors_manager/src/sensors/ens160.h), and [`Veml7700`](components/sensors_manager/src/sensors/veml7700.h), [`Tsl2591`](components/sensors_manager/src/sensors/tsl2591.h) driver implementations, and [`SensorsManager`](components/sensors_manager/include/sensors_manager/sensors_manager.h) for probing active sensors in priority order, performing a single hardware read per active chip, and serving readings/ranges by `SensorType`.
+- [`components/sensors_manager/`](components/sensors_manager/include/sensors_manager/sensors_manager.h) — Abstract [`Sensor`](components/sensors_manager/include/sensors_manager/sensor.h) interface, [`Sht4x`](components/sensors_manager/src/sensors/sht4x.h), [`Bmp581`](components/sensors_manager/src/sensors/bmp581.h), [`Bmp280Bme280`](components/sensors_manager/src/sensors/bmp280_bme280.h), [`Scd30`](components/sensors_manager/src/sensors/scd30.h), [`Ens160`](components/sensors_manager/src/sensors/ens160.h), and [`Veml7700`](components/sensors_manager/src/sensors/veml7700.h), [`Tsl2591`](components/sensors_manager/src/sensors/tsl2591.h), [`Vl53l1x`](components/sensors_manager/src/sensors/vl53l1x.h) driver implementations, and [`SensorsManager`](components/sensors_manager/include/sensors_manager/sensors_manager.h) for probing active sensors in priority order, performing a single hardware read per active chip, and serving readings/ranges by `SensorType`.
 - [`components/matter_interface/`](components/matter_interface/include/matter_interface/matter_manager.h) — [`MatterManager`](components/matter_interface/include/matter_interface/matter_manager.h) for creating Matter endpoints, scaling physical units to Matter attributes (including logarithmic lux scaling for `IlluminanceMeasurement`, and CO₂ / TVOC concentration and `AirQuality` clusters on a shared Air Quality Sensor endpoint), and updating cluster attributes with deadband + heartbeat filtering.
 - [`components/ens160/`](components/ens160/include/ens160.h) — ScioSense ENS160 driver, ported from `k0i05/esp_ens160` onto esp-idf-lib `i2cdev` so it shares the I2C bus with the other drivers.
 - [`components/bmp5/`](components/bmp5/include/bmp5_i2c.h) — Bosch BMP5 SensorAPI (git submodule in `third_party/`) plus `bmp5_i2c` glue that maps its read/write/delay callbacks onto esp-idf-lib `i2cdev`.
@@ -156,7 +167,7 @@ idf.py --preset default set-target esp32c6     # Development (Matter-over-Wi-Fi)
 Project settings are organized by component in `idf.py menuconfig`:
 
 - **`Application Configuration`** ([`main/Kconfig.projbuild`](main/Kconfig.projbuild)): Sensor polling interval (`CONFIG_SENSOR_READ_DELAY_MS`, default `10000 ms`).
-- **`Sensors Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Shared I2C port (`CONFIG_SENSORS_I2C_PORT`, default `0`), SDA/SCL GPIOs (`CONFIG_SENSORS_I2C_SDA_GPIO` = `22`, `CONFIG_SENSORS_I2C_SCL_GPIO` = `23`), BMP280/BME280 I2C address (`0x77` default for Adafruit modules, or `0x76`), BMP581 I2C address (`0x47` default, or `0x46`), and ENS160 I2C address (`0x53` default, or `0x52`).
+- **`Sensors Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Shared I2C port (`CONFIG_SENSORS_I2C_PORT`, default `0`), SDA/SCL GPIOs (`CONFIG_SENSORS_I2C_SDA_GPIO` = `22`, `CONFIG_SENSORS_I2C_SCL_GPIO` = `23`), BMP280/BME280 I2C address (`0x77` default for Adafruit modules, or `0x76`), BMP581 I2C address (`0x47` default, or `0x46`), ENS160 I2C address (`0x53` default, or `0x52`), and the VL53L1X remaining-level calibration (`CONFIG_VL53L1X_FULL_DISTANCE_MM`, default `30`; `CONFIG_VL53L1X_LEVEL_HEIGHT_MM`, default `290`).
 - **`Matter Manager Configuration`** ([`components/matter_interface/Kconfig.projbuild`](components/matter_interface/Kconfig.projbuild)): Maximum reporting interval (`CONFIG_MATTER_REPORT_MAX_INTERVAL_S`, default `180 s`).
 - **`Status LED Configuration`** ([`components/status_led/Kconfig.projbuild`](components/status_led/Kconfig.projbuild)): Status LED GPIO (`15` default, `-1` to disable) and active-low polarity (`CONFIG_STATUS_LED_ACTIVE_LOW`).
 
@@ -195,7 +206,7 @@ Once running, follow the [**Home Assistant Commissioning Guide**](docs/home_assi
 
 ## Acknowledgements
 
-This project is based on the original [matter_bmp280](https://github.com/albert-gee/matter_bmp280) project by **Albert Gee** ([`@albert-gee`](https://github.com/albert-gee)). It has been extended to support multi-sensor auto-detection (`SHT40`/`SHT41`/`SHT45`, `BMP581`, `BME280`/`BMP280`, `SCD30`, `ENS160`, `VEML7700`, and `TSL2591`) using the `esp-idf-lib/sht4x`, `esp-idf-lib/bmp280`, `esp-idf-lib/scd30`, `esp-idf-lib/veml7700`, and `esp-idf-lib/tsl2591` managed components an `i2cdev` port of Eric Gionet's `k0i05/esp_ens160` driver, and Bosch Sensortec's BMP5 SensorAPI.
+This project is based on the original [matter_bmp280](https://github.com/albert-gee/matter_bmp280) project by **Albert Gee** ([`@albert-gee`](https://github.com/albert-gee)). It has been extended to support multi-sensor auto-detection (`SHT40`/`SHT41`/`SHT45`, `BMP581`, `BME280`/`BMP280`, `SCD30`, `ENS160`, `VEML7700`, `TSL2591`, and `VL53L1X`) using the `esp-idf-lib/sht4x`, `esp-idf-lib/bmp280`, `esp-idf-lib/scd30`, `esp-idf-lib/veml7700`, and `esp-idf-lib/tsl2591`, and `grrtzm/vl53l1x_library` managed components an `i2cdev` port of Eric Gionet's `k0i05/esp_ens160` driver, and Bosch Sensortec's BMP5 SensorAPI.
 
 ---
 
@@ -215,6 +226,7 @@ This project is licensed under the MIT License. See the [`LICENSE`](LICENSE) fil
 - [ScioSense ENS160 Datasheet](https://www.sciosense.com/wp-content/uploads/2023/12/ENS160-Datasheet.pdf)
 - [Vishay VEML7700 Datasheet](https://www.vishay.com/docs/84286/veml7700.pdf)
 - [ams TSL2591 Datasheet](https://ams.com/documents/20143/36005/TSL2591_DS000338_6-00.pdf)
+- [ST VL53L1X Datasheet](https://www.st.com/resource/en/datasheet/vl53l1x.pdf)
 - [ESP Component Registry — `esp-idf-lib/sht4x`](https://components.espressif.com/components/esp-idf-lib/sht4x)
 - [ESP Component Registry — `esp-idf-lib/bmp280`](https://components.espressif.com/components/esp-idf-lib/bmp280)
 - [ESP Component Registry — `esp-idf-lib/scd30`](https://components.espressif.com/components/esp-idf-lib/scd30)

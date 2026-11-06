@@ -76,4 +76,21 @@ menu "Sensors Configuration"
         default 0x53 if ENS160_I2C_ADDRESS_0X53
         default 0x52 if ENS160_I2C_ADDRESS_0X52
 
+    config VL53L1X_FULL_DISTANCE_MM
+        int "VL53L1X distance when full (mm)"
+        range 0 4000
+        default 30
+        help
+            Distance from the VL53L1X to the top of the consumable (e.g. a salt block) when it is
+            full: reported as 100% remaining. The sensor's specified minimum range is 40 mm;
+            closer readings are less reliable.
+
+    config VL53L1X_LEVEL_HEIGHT_MM
+        int "VL53L1X level height, full to empty (mm)"
+        range 1 4000
+        default 290
+        help
+            How much farther the target is when empty (e.g. the salt block height): the distance
+            FULL_DISTANCE + LEVEL_HEIGHT is reported as 0% remaining.
+
 endmenu

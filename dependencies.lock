@@ -225,6 +225,22 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.14.0
+  grrtzm/vl53l1x_library:
+    component_hash: 845575d40220f911d635e1f3ac3209863d79ec5e17e93a6dea8345d0e082e854
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32c3
+    - esp32c6
+    version: 0.3.1
   idf:
     source:
       type: idf
@@ -242,7 +258,8 @@ direct_dependencies:
 - espressif/esp_encrypted_img
 - espressif/esp_secure_cert_mgr
 - espressif/mdns
+- grrtzm/vl53l1x_library
 - idf
-manifest_hash: 781f43b5c873ac2256649be32d82a0cfb201d5f2ed41296fb7a65dcd1b2b19b5
+manifest_hash: b987cf9aa1a829841aca6a895e33535ffa3b14414d692e43b7bb4df639e1402e
 target: esp32c6
 version: 3.0.0
