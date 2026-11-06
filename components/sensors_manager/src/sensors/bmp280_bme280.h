@@ -40,6 +40,8 @@ class Bmp280Bme280 : public Sensor {
     esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
 
   private:
+    esp_err_t initAt(uint8_t address);
+
     bmp280_t sensor_{};
     bool initialized_ = false; // true only after a successful init()
     bool is_bme280_ = false;   // BME280 supports humidity, BMP280 does not

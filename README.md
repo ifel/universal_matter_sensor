@@ -87,7 +87,7 @@ Connect one or more supported sensor modules (**SHT4x**, **BMP581**, **BME280 / 
 | **GND** | **GND** | — | Common ground |
 | **SDA** / **SDI** | **D4** (SDA) | **GPIO22** | Configurable via `CONFIG_SENSORS_I2C_SDA_GPIO` |
 | **SCL** / **SCK** | **D5** (SCL) | **GPIO23** | Configurable via `CONFIG_SENSORS_I2C_SCL_GPIO` |
-| **SDO** *(BMP280/BME280 only)* | Unconnected | — | Pulled high on Adafruit module → default I2C address **`0x77`**. Connect to `GND` for `0x76` (`CONFIG_BMP280_I2C_ADDRESS`). **BMP581** uses **`0x47`** by default (SDO high on Adafruit / SparkFun modules; `0x46` with SDO to `GND`, `CONFIG_BMP581_I2C_ADDRESS`). **SHT4x** uses fixed I2C address **`0x44`**, **SCD30** uses fixed I2C address **`0x61`**, **ENS160** uses **`0x53`** by default (ADDR high; `0x52` with ADDR to `GND`, `CONFIG_ENS160_I2C_ADDRESS`), and **VEML7700** uses fixed I2C address **`0x10`**, and **TSL2591** uses fixed I2C address **`0x29`**, and **VL53L1X** defaults to **`0x29`** too (so it can't share a bus with a TSL2591). |
+| **SDO** *(BMP280/BME280 only)* | Unconnected | — | Pulled high on Adafruit module → I2C address **`0x77`**; connected to `GND` → `0x76`. **BMP581** uses **`0x47`** (SDO high on Adafruit / SparkFun modules) or `0x46` (SDO to `GND`). Both addresses are probed automatically for these and ENS160. **SHT4x** uses fixed I2C address **`0x44`**, **SCD30** uses fixed I2C address **`0x61`**, **ENS160** uses **`0x53`** (ADDR high) or `0x52` (ADDR to `GND`), and **VEML7700** uses fixed I2C address **`0x10`**, and **TSL2591** uses fixed I2C address **`0x29`**, and **VL53L1X** defaults to **`0x29`** too (so it can't share a bus with a TSL2591). |
 
 ### Auto-Detection & Sensor Priority
 
@@ -167,7 +167,7 @@ idf.py --preset default set-target esp32c6     # Development (Matter-over-Wi-Fi)
 Project settings are organized by component in `idf.py menuconfig`:
 
 - **`Application Configuration`** ([`main/Kconfig.projbuild`](main/Kconfig.projbuild)): Sensor polling interval (`CONFIG_SENSOR_READ_DELAY_MS`, default `10000 ms`).
-- **`Sensors Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Shared I2C port (`CONFIG_SENSORS_I2C_PORT`, default `0`), SDA/SCL GPIOs (`CONFIG_SENSORS_I2C_SDA_GPIO` = `22`, `CONFIG_SENSORS_I2C_SCL_GPIO` = `23`), BMP280/BME280 I2C address (`0x77` default for Adafruit modules, or `0x76`), BMP581 I2C address (`0x47` default, or `0x46`), ENS160 I2C address (`0x53` default, or `0x52`), and the VL53L1X remaining-level calibration (`CONFIG_VL53L1X_FULL_DISTANCE_MM`, default `30`; `CONFIG_VL53L1X_LEVEL_HEIGHT_MM`, default `290`).
+- **`Sensors Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Shared I2C port (`CONFIG_SENSORS_I2C_PORT`, default `0`), SDA/SCL GPIOs (`CONFIG_SENSORS_I2C_SDA_GPIO` = `22`, `CONFIG_SENSORS_I2C_SCL_GPIO` = `23`), and the VL53L1X remaining-level calibration (`CONFIG_VL53L1X_FULL_DISTANCE_MM`, default `30`; `CONFIG_VL53L1X_LEVEL_HEIGHT_MM`, default `290`).
 - **`Matter Manager Configuration`** ([`components/matter_interface/Kconfig.projbuild`](components/matter_interface/Kconfig.projbuild)): Maximum reporting interval (`CONFIG_MATTER_REPORT_MAX_INTERVAL_S`, default `180 s`).
 - **`Status LED Configuration`** ([`components/status_led/Kconfig.projbuild`](components/status_led/Kconfig.projbuild)): Status LED GPIO (`15` default, `-1` to disable) and active-low polarity (`CONFIG_STATUS_LED_ACTIVE_LOW`).
 

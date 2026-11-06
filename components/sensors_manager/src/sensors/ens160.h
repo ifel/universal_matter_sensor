@@ -35,6 +35,7 @@ class Ens160 : public Sensor {
     esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
 
   private:
+    esp_err_t initAt(uint8_t address);
     esp_err_t updateCompensation(const SensorReadings& compensations);
 
     ens160_t sensor_{};

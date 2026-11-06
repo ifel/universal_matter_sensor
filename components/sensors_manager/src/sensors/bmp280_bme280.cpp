@@ -1,11 +1,13 @@
 #include "bmp280_bme280.h"
 
+#include <array>
+
 #include <esp_check.h>
 
 constexpr const char* tag = "   ***Sensor BMP280 BME280***   ";
 
 // BMP280 / BME280 Sensor Configuration (from Kconfig)
-constexpr uint8_t bmp280_i2c_address = CONFIG_BMP280_I2C_ADDRESS;
+constexpr std::array<uint8_t, 2> i2c_addresses = {0x77, 0x76}; // SDO high, SDO to GND
 constexpr auto bmp280_sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
 constexpr auto bmp280_scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
 constexpr auto bmp280_i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
@@ -67,13 +69,37 @@ esp_err_t Bmp280Bme280::init(int64_t /*read_interval_ms*/) {
     auto ret = i2cdev_init();
     ESP_RETURN_ON_ERROR(ret, tag, "I2C initialization failed: %s", esp_err_to_name(ret));
 
+    // Address depends on the module's address pin: try the usual default first.
+    for (const uint8_t address : i2c_addresses) {
+        ret = initAt(address);
+        if (ret == ESP_OK) { break; }
+    }
+    ESP_RETURN_ON_ERROR(ret,
+                        tag,
+                        "No %s found at 0x%02x or 0x%02x",
+                        getModelName(),
+                        i2c_addresses[0],
+                        i2c_addresses[1]);
+
+    is_bme280_ = sensor_.id == BME280_CHIP_ID;
+    initialized_ = true;
+    ESP_LOGI(tag,
+             "Sensor initialized: %s detected at 0x%02x (chip ID: 0x%02x).",
+             getModelName(),
+             sensor_.i2c_dev.addr,
+             sensor_.id);
+
+    return ESP_OK;
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t Bmp280Bme280::initAt(uint8_t address) {
     bmp280_params_t params;
-    ret = bmp280_init_default_params(&params);
+    auto ret = bmp280_init_default_params(&params);
     ESP_RETURN_ON_ERROR(
         ret, tag, "initialization failed on bmp280_init_default_params: %s", esp_err_to_name(ret));
 
-    ret = bmp280_init_desc(
-        &sensor_, bmp280_i2c_address, bmp280_i2c_port, bmp280_sda_gpio, bmp280_scl_gpio);
+    ret = bmp280_init_desc(&sensor_, address, bmp280_i2c_port, bmp280_sda_gpio, bmp280_scl_gpio);
     ESP_RETURN_ON_ERROR(
         ret, tag, "initialization failed on bmp280_init_desc: %s", esp_err_to_name(ret));
 
@@ -81,11 +107,6 @@ esp_err_t Bmp280Bme280::init(int64_t /*read_interval_ms*/) {
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto)
     ESP_GOTO_ON_ERROR(
         ret, cleanup, tag, "initialization failed on bmp280_init failed: %s", esp_err_to_name(ret));
-
-    is_bme280_ = sensor_.id == BME280_CHIP_ID;
-    initialized_ = true;
-    ESP_LOGI(tag, "Sensor initialized: %s detected (chip ID: 0x%02x).", getModelName(), sensor_.id);
-
     return ESP_OK;
 
 cleanup:

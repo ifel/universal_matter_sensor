@@ -34,6 +34,7 @@ class Bmp581 : public Sensor {
     esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
 
   private:
+    esp_err_t initAt(uint8_t address);
     esp_err_t configure();
 
     bmp5_i2c_t sensor_{};

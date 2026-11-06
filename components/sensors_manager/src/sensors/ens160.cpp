@@ -1,5 +1,7 @@
 #include "ens160.h"
 
+#include <array>
+
 #include <esp_check.h>
 
 constexpr const char* tag = "   ***Sensor ENS160***   ";
@@ -8,7 +10,7 @@ constexpr const char* tag = "   ***Sensor ENS160***   ";
 constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
 constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
 constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
-constexpr auto i2c_address = static_cast<uint8_t>(CONFIG_ENS160_I2C_ADDRESS);
+constexpr std::array<uint8_t, 2> i2c_addresses = {0x53, 0x52}; // ADDR high, ADDR to GND
 
 namespace {
 std::optional<AirQualityLevel> ubaToAirQuality(ens160_aqi_uba_indexes_t uba_aqi) {
@@ -97,19 +99,37 @@ esp_err_t Ens160::init(int64_t /*read_interval_ms*/) {
     auto ret = i2cdev_init();
     ESP_RETURN_ON_ERROR(ret, tag, "I2C initialization failed: %s", esp_err_to_name(ret));
 
-    ret = ens160_init_desc(&sensor_, i2c_address, i2c_port, sda_gpio, scl_gpio);
+    // Address depends on the module's address pin: try the usual default first.
+    for (const uint8_t address : i2c_addresses) {
+        ret = initAt(address);
+        if (ret == ESP_OK) { break; }
+    }
+    ESP_RETURN_ON_ERROR(ret,
+                        tag,
+                        "No %s found at 0x%02x or 0x%02x",
+                        getModelName(),
+                        i2c_addresses[0],
+                        i2c_addresses[1]);
+
+    initialized_ = true;
+    ESP_LOGI(tag,
+             "Sensor initialized: %s at 0x%02x (part id: 0x%04x).",
+             getModelName(),
+             sensor_.i2c_dev.addr,
+             static_cast<unsigned int>(sensor_.part_id));
+
+    return ESP_OK;
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t Ens160::initAt(uint8_t address) {
+    auto ret = ens160_init_desc(&sensor_, address, i2c_port, sda_gpio, scl_gpio);
     ESP_RETURN_ON_ERROR(ret, tag, "initialization failed on init_desc: %s", esp_err_to_name(ret));
 
     ret = ens160_init(&sensor_);
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto)
     ESP_GOTO_ON_ERROR(
         ret, cleanup, tag, "initialization failed on ens160_init: %s", esp_err_to_name(ret));
-    initialized_ = true;
-    ESP_LOGI(tag,
-             "Sensor initialized: %s (part id: 0x%04x).",
-             getModelName(),
-             static_cast<unsigned int>(sensor_.part_id));
-
     return ESP_OK;
 
 cleanup:
