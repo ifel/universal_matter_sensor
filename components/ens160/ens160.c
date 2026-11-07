@@ -85,6 +85,11 @@
 
 static const char *const TAG = "ens160";
 
+// At least ms: pdMS_TO_TICKS rounds down (to 0 below one tick at 100 Hz), so add a tick.
+static inline void delay_ms(uint32_t ms) {
+    vTaskDelay(pdMS_TO_TICKS(ms) + 1);
+}
+
 static esp_err_t read_reg(ens160_t *dev, uint8_t reg, uint8_t *buf, size_t size) {
     I2C_DEV_TAKE_MUTEX(&dev->i2c_dev);
     I2C_DEV_CHECK(&dev->i2c_dev, i2c_dev_read_reg(&dev->i2c_dev, reg, buf, size));
@@ -149,7 +154,7 @@ static esp_err_t get_status_register(ens160_t *dev, uint8_t *status) {
 static esp_err_t set_mode(ens160_t *dev, ens160_operating_modes_t mode) {
     ESP_RETURN_ON_ERROR(write_byte(dev, ENS160_REG_OPMODE_RW, mode), TAG,
                         "write operating mode 0x%02x failed", mode);
-    vTaskDelay(pdMS_TO_TICKS(ENS160_MODE_DELAY_MS));
+    delay_ms(ENS160_MODE_DELAY_MS);
     return ESP_OK;
 }
 
@@ -162,14 +167,14 @@ static esp_err_t set_command(ens160_t *dev, ens160_commands_t command) {
 static esp_err_t clear_general_purpose_registers(ens160_t *dev) {
     ESP_RETURN_ON_ERROR(set_command(dev, ENS160_CMD_NORMAL), TAG, "normal command failed");
     ESP_RETURN_ON_ERROR(set_command(dev, ENS160_CMD_CLEAR_GPR), TAG, "clear gpr command failed");
-    vTaskDelay(pdMS_TO_TICKS(ENS160_CLEAR_GPR_DELAY_MS));
+    delay_ms(ENS160_CLEAR_GPR_DELAY_MS);
     ESP_RETURN_ON_ERROR(set_command(dev, ENS160_CMD_NORMAL), TAG, "normal command failed");
     return ESP_OK;
 }
 
 static esp_err_t soft_reset(ens160_t *dev) {
     ESP_RETURN_ON_ERROR(set_mode(dev, ENS160_OPMODE_RESET), TAG, "soft-reset failed");
-    vTaskDelay(pdMS_TO_TICKS(ENS160_RESET_DELAY_MS));
+    delay_ms(ENS160_RESET_DELAY_MS);
     return ESP_OK;
 }
 
@@ -216,12 +221,18 @@ esp_err_t ens160_free_desc(ens160_t *dev) {
 esp_err_t ens160_init(ens160_t *dev) {
     CHECK_ARG(dev);
 
-    vTaskDelay(pdMS_TO_TICKS(ENS160_POWERUP_DELAY_MS));
+    delay_ms(ENS160_POWERUP_DELAY_MS);
+
+    // Identify before the reset writes to the bus: 0x52/0x53 may hold another device.
+    ESP_RETURN_ON_ERROR(read_word(dev, ENS160_REG_PART_ID_R, &dev->part_id), TAG,
+                        "read part id failed");
+    ESP_RETURN_ON_FALSE(dev->part_id == ENS160_PART_ID, ESP_ERR_NOT_FOUND, TAG,
+                        "unexpected part id 0x%04x", dev->part_id);
 
     ESP_RETURN_ON_ERROR(soft_reset(dev), TAG, "soft-reset for init failed");
     ESP_RETURN_ON_ERROR(setup_registers(dev), TAG, "setup registers for init failed");
 
-    vTaskDelay(pdMS_TO_TICKS(ENS160_APPSTART_DELAY_MS));
+    delay_ms(ENS160_APPSTART_DELAY_MS);
     return ESP_OK;
 }
 
@@ -231,7 +242,7 @@ static esp_err_t wait_for_status_bit(ens160_t *dev, uint8_t bit) {
     do {
         ESP_RETURN_ON_ERROR(get_status_register(dev, &status), TAG, "poll status failed");
         if (status & bit) return ESP_OK;
-        vTaskDelay(pdMS_TO_TICKS(ENS160_DATA_READY_DELAY_MS));
+        delay_ms(ENS160_DATA_READY_DELAY_MS);
     } while ((esp_timer_get_time() - start_time) < (ENS160_DATA_POLL_TIMEOUT_MS * 1000LL));
     return ESP_ERR_TIMEOUT;
 }
@@ -259,7 +270,7 @@ esp_err_t ens160_get_measurement(ens160_t *dev, ens160_air_quality_data_t *data)
     data->etoh = etoh;
     data->eco2 = eco2;
 
-    vTaskDelay(pdMS_TO_TICKS(ENS160_CMD_DELAY_MS));
+    delay_ms(ENS160_CMD_DELAY_MS);
     return ESP_OK;
 }
 
@@ -277,7 +288,7 @@ esp_err_t ens160_get_raw_measurement(ens160_t *dev, ens160_air_quality_raw_data_
     data->hp2_ri = convert_rs_raw_to_ohms(rx[4] | ((uint16_t)rx[5] << 8));
     data->hp3_ri = convert_rs_raw_to_ohms(rx[6] | ((uint16_t)rx[7] << 8));
 
-    vTaskDelay(pdMS_TO_TICKS(ENS160_CMD_DELAY_MS));
+    delay_ms(ENS160_CMD_DELAY_MS);
 
     ESP_RETURN_ON_ERROR(read_reg(dev, ENS160_REG_DATA_BL_R, rx, sizeof(rx)), TAG,
                         "read baseline registers failed");
@@ -286,7 +297,7 @@ esp_err_t ens160_get_raw_measurement(ens160_t *dev, ens160_air_quality_raw_data_
     data->hp2_bl = convert_rs_raw_to_ohms(rx[4] | ((uint16_t)rx[5] << 8));
     data->hp3_bl = convert_rs_raw_to_ohms(rx[6] | ((uint16_t)rx[7] << 8));
 
-    vTaskDelay(pdMS_TO_TICKS(ENS160_CMD_DELAY_MS));
+    delay_ms(ENS160_CMD_DELAY_MS);
     return ESP_OK;
 }
 

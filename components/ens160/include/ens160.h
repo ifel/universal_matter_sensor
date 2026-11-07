@@ -145,7 +145,8 @@ esp_err_t ens160_init_desc(
 esp_err_t ens160_free_desc(ens160_t* dev);
 
 /**
- * @brief Reset the device, verify the part id, and start standard (gas sensing) mode.
+ * @brief Verify the part id (nothing is written before it matches), reset the device, and start
+ * standard (gas sensing) mode.
  *
  * Interrupt pin is disabled.
  */
