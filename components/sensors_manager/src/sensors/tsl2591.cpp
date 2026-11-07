@@ -81,13 +81,14 @@ Tsl2591::~Tsl2591() {
 }
 
 namespace {
-// Illuminance (lx)
+// Illuminance (lx), tolerance ±20 % (light-source dependent)
 constexpr std::array type_ranges = {
     SensorTypeRange{.type = SensorType::ILLUMINANCE,
                     .range = {.min = illum_min_lux,
                               .max = illum_max_lux,
                               .abs_threshold = 1.0F,
-                              .rel_threshold = 0.03F}},
+                              .rel_threshold = 0.03F,
+                              .tolerance = 0.2F}},
 };
 } // namespace
 

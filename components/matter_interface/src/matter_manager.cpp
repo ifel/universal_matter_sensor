@@ -1,6 +1,7 @@
 #include "matter_interface/matter_manager.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -51,6 +52,9 @@ using namespace chip::app::Clusters;
 constexpr float matter_temp_scale = 100.0F;
 constexpr float matter_relative_humidity_scale = 100.0F;
 constexpr float matter_pressure_scale = 0.01F; // Scale - 10.0F and PA -> kPa => 10/1000
+// Extended feature: ScaledValue = 10^Scale x pressure in Pa; Scale -1 gives 10 Pa (0.1 hPa) steps.
+constexpr int8_t matter_pressure_scale_exponent = -1;
+constexpr float matter_pressure_scaled_scale = 0.1F; // Pa -> ScaledValue
 constexpr float matter_carbon_dioxide_concentration_scale = 1.0F;
 constexpr float matter_tvoc_concentration_scale = 1.0F;
 constexpr float matter_battery_percent_scale = 2.0F;    // BatPercentRemaining is in half percent
@@ -82,6 +86,78 @@ void notifyIdentify(bool identifying) {
 std::optional<uint16_t> s_power_source_endpoint_id;
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::vector<chip::EndpointId> s_powered_endpoint_ids;
+
+// Peak and average over a rolling window kept in fixed time buckets, so the window slides in
+// bucket-sized steps.
+class RollingStats {
+  public:
+    static constexpr uint32_t window_s = 3600;
+    static constexpr size_t bucket_count = 12;
+    static constexpr int64_t bucket_us = static_cast<int64_t>(window_s) * 1'000'000 / bucket_count;
+
+    void add(float value, int64_t now_us) {
+        auto& bucket = bucketAt(now_us);
+        bucket.peak = bucket.count == 0 ? value : std::max(bucket.peak, value);
+        bucket.sum += value;
+        ++bucket.count;
+    }
+
+    // nullopt while the window holds no value.
+    std::optional<float> peak(int64_t now_us) const {
+        std::optional<float> result;
+        for (const auto& bucket : buckets_) {
+            if (isLive(bucket, now_us)) {
+                result = std::max(result.value_or(bucket.peak), bucket.peak);
+            }
+        }
+        return result;
+    }
+
+    std::optional<float> average(int64_t now_us) const {
+        float sum = 0.0F;
+        uint32_t count = 0;
+        for (const auto& bucket : buckets_) {
+            if (isLive(bucket, now_us)) {
+                sum += bucket.sum;
+                count += bucket.count;
+            }
+        }
+        return count == 0 ? std::nullopt : std::optional(sum / static_cast<float>(count));
+    }
+
+  private:
+    struct Bucket {
+        int64_t index{-1}; // bucket number since boot
+        float peak{};
+        float sum{};
+        uint32_t count{};
+    };
+
+    static int64_t indexAt(int64_t now_us) {
+        return now_us / bucket_us;
+    }
+
+    static bool isLive(const Bucket& bucket, int64_t now_us) {
+        return bucket.count > 0 &&
+               bucket.index > indexAt(now_us) - static_cast<int64_t>(bucket_count);
+    }
+
+    Bucket& bucketAt(int64_t now_us) {
+        const int64_t index = indexAt(now_us);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+        auto& bucket = buckets_[static_cast<size_t>(index) % bucket_count];
+        if (bucket.index != index) { bucket = Bucket{.index = index}; }
+        return bucket;
+    }
+
+    std::array<Bucket, bucket_count> buckets_{};
+};
+
+// CO2 peak/average; only touched under the CHIP lock (updateValues).
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+RollingStats s_co2_stats;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::optional<int64_t> s_co2_stats_published_us;
 
 // The list is kept by the Power Source server, which needs the data model to be up.
 void setPowerSourceEndpointList() {
@@ -241,6 +317,41 @@ nullable<int16_t> matterScalePressureToKpa(float pressure_pa, SensorValueRange s
     return scaleToMatter<int16_t>(pressure_pa, matter_pressure_scale, sensor_value_range);
 }
 
+nullable<int16_t> matterScalePressureScaled(float pressure_pa,
+                                            SensorValueRange sensor_value_range) {
+    return scaleToMatter<int16_t>(pressure_pa, matter_pressure_scaled_scale, sensor_value_range);
+}
+
+// Matter Tolerance (uint16, at most 2048) from an accuracy already in Matter units; rounded up so
+// it never understates the error.
+uint16_t matterTolerance(float tolerance_in_matter_units) {
+    constexpr float max_tolerance = 2048.0F;
+    return static_cast<uint16_t>(
+        std::clamp(std::ceil(tolerance_in_matter_units), 0.0F, max_tolerance));
+}
+
+// Illuminance is logarithmic (10000 x log10(lx) + 1), so a relative accuracy is a constant offset.
+uint16_t matterIlluminanceTolerance(float relative_tolerance) {
+    return relative_tolerance > 0.0F
+               ? matterTolerance(10000.0F * std::log10(1.0F + relative_tolerance))
+               : 0;
+}
+
+using CreateToleranceFn = esp_matter::attribute_t* (*)(esp_matter::cluster_t*, uint16_t);
+
+// Adds the optional Tolerance attribute; 0 = none.
+void addTolerance(esp_matter::endpoint_t* endpoint,
+                  uint32_t cluster_id,
+                  CreateToleranceFn create_tolerance,
+                  uint16_t tolerance,
+                  const char* type_name) {
+    if (endpoint == nullptr || tolerance == 0) { return; }
+    auto* cluster = esp_matter::cluster::get(endpoint, cluster_id);
+    if (cluster == nullptr || create_tolerance(cluster, tolerance) == nullptr) {
+        ESP_LOGW(tag, "Failed to add the %s tolerance", type_name);
+    }
+}
+
 nullable<uint16_t> matterScaleRelativeHumidity(float relative_humidity_pct,
                                                SensorValueRange sensor_value_range) {
     return scaleToMatter<uint16_t>(
@@ -322,7 +433,8 @@ std::optional<uint16_t> finishEndpoint(esp_matter::endpoint_t* endpoint, const c
 
 std::optional<uint16_t> createTemperatureSensorEndpoint(esp_matter::node_t* matter_node,
                                                         const nullable<int16_t> scaled_min,
-                                                        const nullable<int16_t> scaled_max) {
+                                                        const nullable<int16_t> scaled_max,
+                                                        const uint16_t tolerance) {
     if (!isValidScaledRange(scaled_min, scaled_max)) {
         ESP_LOGE(tag, "Min temperature cannot be greater than max temperature.");
         return std::nullopt;
@@ -333,14 +445,22 @@ std::optional<uint16_t> createTemperatureSensorEndpoint(esp_matter::node_t* matt
     config.temperature_measurement.max_measured_value = scaled_max;
     config.temperature_measurement.measured_value = nullable<int16_t>();
 
-    return finishEndpoint(esp_matter::endpoint::temperature_sensor::create(
-                              matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
-                          "Temperature");
+    auto* endpoint = esp_matter::endpoint::temperature_sensor::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    addTolerance(endpoint,
+                 TemperatureMeasurement::Id,
+                 esp_matter::cluster::temperature_measurement::attribute::create_tolerance,
+                 tolerance,
+                 "temperature");
+    return finishEndpoint(endpoint, "Temperature");
 }
 
+// Pressure in 0.1 kPa (MeasuredValue) plus the Extended feature's finer ScaledValue.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 std::optional<uint16_t> createPressureSensorEndpoint(esp_matter::node_t* matter_node,
-                                                     const nullable<int16_t> scaled_min,
-                                                     const nullable<int16_t> scaled_max) {
+                                                     const SensorValueRange& range) {
+    const auto scaled_min = matterScalePressureToKpa(range.min, range);
+    const auto scaled_max = matterScalePressureToKpa(range.max, range);
     if (!isValidScaledRange(scaled_min, scaled_max)) {
         ESP_LOGE(tag, "Min pressure cannot be greater than max pressure.");
         return std::nullopt;
@@ -351,14 +471,36 @@ std::optional<uint16_t> createPressureSensorEndpoint(esp_matter::node_t* matter_
     config.pressure_measurement.max_measured_value = scaled_max;
     config.pressure_measurement.measured_value = nullable<int16_t>();
 
-    return finishEndpoint(esp_matter::endpoint::pressure_sensor::create(
-                              matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
-                          "Pressure");
+    auto* endpoint = esp_matter::endpoint::pressure_sensor::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    auto* cluster =
+        endpoint == nullptr ? nullptr : esp_matter::cluster::get(endpoint, PressureMeasurement::Id);
+    esp_matter::cluster::pressure_measurement::feature::extended::config_t extended;
+    extended.min_scaled_value = matterScalePressureScaled(range.min, range);
+    extended.max_scaled_value = matterScalePressureScaled(range.max, range);
+    extended.scale = matter_pressure_scale_exponent;
+    if (cluster == nullptr || esp_matter::cluster::pressure_measurement::feature::extended::add(
+                                  cluster, &extended) != ESP_OK) {
+        ESP_LOGE(tag, "Failed to add the pressure Extended feature.");
+        return std::nullopt;
+    }
+    addTolerance(endpoint,
+                 PressureMeasurement::Id,
+                 esp_matter::cluster::pressure_measurement::attribute::create_tolerance,
+                 matterTolerance(range.tolerance * matter_pressure_scale),
+                 "pressure");
+    addTolerance(endpoint,
+                 PressureMeasurement::Id,
+                 esp_matter::cluster::pressure_measurement::attribute::create_scaled_tolerance,
+                 matterTolerance(range.tolerance * matter_pressure_scaled_scale),
+                 "pressure scaled");
+    return finishEndpoint(endpoint, "Pressure");
 }
 
 std::optional<uint16_t> createRelativeHumiditySensorEndpoint(esp_matter::node_t* matter_node,
                                                              const nullable<uint16_t> scaled_min,
-                                                             const nullable<uint16_t> scaled_max) {
+                                                             const nullable<uint16_t> scaled_max,
+                                                             const uint16_t tolerance) {
     if (!isValidScaledRange(scaled_min, scaled_max)) {
         ESP_LOGE(tag, "Min relative humidity cannot be greater than max relative humidity.");
         return std::nullopt;
@@ -369,17 +511,23 @@ std::optional<uint16_t> createRelativeHumiditySensorEndpoint(esp_matter::node_t*
     config.relative_humidity_measurement.max_measured_value = scaled_max;
     config.relative_humidity_measurement.measured_value = nullable<uint16_t>();
 
-    return finishEndpoint(esp_matter::endpoint::humidity_sensor::create(
-                              matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
-                          "Relative humidity");
+    auto* endpoint = esp_matter::endpoint::humidity_sensor::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    addTolerance(endpoint,
+                 RelativeHumidityMeasurement::Id,
+                 esp_matter::cluster::relative_humidity_measurement::attribute::create_tolerance,
+                 tolerance,
+                 "relative humidity");
+    return finishEndpoint(endpoint, "Relative humidity");
 }
 
 // esp-matter does not yet register ConcentrationMeasurementCluster in data_model::provider.
 // One instantiation per concentration cluster id, since the init/shutdown callbacks carry no
-// context.
-template <uint32_t ClusterId, ConcentrationMeasurement::MeasurementUnitEnum Unit>
+// context. PeakAverage adds the Peak and Average Measurement features (RollingStats window).
+template <uint32_t ClusterId, ConcentrationMeasurement::MeasurementUnitEnum Unit, bool PeakAverage>
 struct ConcentrationServerCluster {
     static constexpr auto unit = Unit;
+    static constexpr bool peak_average = PeakAverage;
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
     static inline chip::app::LazyRegisteredServerCluster<
         ConcentrationMeasurement::ConcentrationMeasurementCluster>
@@ -389,18 +537,32 @@ struct ConcentrationServerCluster {
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
     static inline DataModel::Nullable<float> max_measured;
 
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity): the log macros inflate it.
     static void initCallback(chip::EndpointId endpoint_id) {
         if (!server_cluster.IsConstructed()) {
+            using ConcentrationMeasurement::Feature;
+            using Flags = chip::BitFlags<Feature>;
+            const Flags features = PeakAverage ? Flags(Feature::kNumericMeasurement)
+                                                     .Set(Feature::kPeakMeasurement)
+                                                     .Set(Feature::kAverageMeasurement)
+                                               : Flags(Feature::kNumericMeasurement);
             const ConcentrationMeasurement::ConcentrationMeasurementCluster::Config config{
                 .clusterId = ClusterId,
-                .features = chip::BitFlags<ConcentrationMeasurement::Feature>(
-                    ConcentrationMeasurement::Feature::kNumericMeasurement),
+                .features = features,
                 .medium = ConcentrationMeasurement::MeasurementMediumEnum::kAir,
                 .unit = Unit,
                 .minMeasured = min_measured,
                 .maxMeasured = max_measured,
             };
             server_cluster.Create(endpoint_id, config);
+            if constexpr (PeakAverage) {
+                auto& cluster = server_cluster.Cluster();
+                if (cluster.SetPeakMeasuredValueWindow(RollingStats::window_s) != CHIP_NO_ERROR ||
+                    cluster.SetAverageMeasuredValueWindow(RollingStats::window_s) !=
+                        CHIP_NO_ERROR) {
+                    ESP_LOGE(tag, "Failed to set the concentration statistics windows");
+                }
+            }
         }
         const CHIP_ERROR err = esp_matter::data_model::provider::get_instance().registry().Register(
             server_cluster.Registration());
@@ -431,10 +593,12 @@ struct ConcentrationServerCluster {
 
 using Co2ServerCluster =
     ConcentrationServerCluster<CarbonDioxideConcentrationMeasurement::Id,
-                               ConcentrationMeasurement::MeasurementUnitEnum::kPpm>;
+                               ConcentrationMeasurement::MeasurementUnitEnum::kPpm,
+                               true>;
 using TvocServerCluster =
     ConcentrationServerCluster<TotalVolatileOrganicCompoundsConcentrationMeasurement::Id,
-                               ConcentrationMeasurement::MeasurementUnitEnum::kPpb>;
+                               ConcentrationMeasurement::MeasurementUnitEnum::kPpb,
+                               false>;
 
 using ConcentrationClusterCreateFn =
     esp_matter::cluster_t* (*)(esp_matter::endpoint_t*,
@@ -457,10 +621,17 @@ bool attachConcentrationCluster(esp_matter::endpoint_t* endpoint,
     esp_matter::cluster::concentration_measurement::config_t cluster_config;
 
     // IMPORTANT: Matter 1.3 requires explicitly setting Feature Flags for Concentration
-    // Measurements. We explicitly enable Numeric Measurement (and optionally Average Measurement if
-    // tracked).
-    cluster_config.feature_flags =
-        esp_matter::cluster::concentration_measurement::feature::numeric_measurement::get_id();
+    // Measurements. Numeric Measurement always; Peak/Average Measurement where tracked.
+    namespace concentration_feature = esp_matter::cluster::concentration_measurement::feature;
+    cluster_config.feature_flags = concentration_feature::numeric_measurement::get_id();
+    if constexpr (ServerCluster::peak_average) {
+        cluster_config.feature_flags |= concentration_feature::peak_measurement::get_id() |
+                                        concentration_feature::average_measurement::get_id();
+        cluster_config.features.peak_measurement.peak_measured_value_window =
+            RollingStats::window_s;
+        cluster_config.features.average_measurement.average_measured_value_window =
+            RollingStats::window_s;
+    }
 
     cluster_config.measurement_medium =
         static_cast<uint8_t>(ConcentrationMeasurement::MeasurementMediumEnum::kAir);
@@ -553,7 +724,8 @@ esp_err_t updateAirQuality(const std::optional<uint16_t> endpoint_id,
 
 std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matter_node,
                                                         const nullable<uint16_t> scaled_min,
-                                                        const nullable<uint16_t> scaled_max) {
+                                                        const nullable<uint16_t> scaled_max,
+                                                        const uint16_t tolerance) {
     if (!isValidScaledRange(scaled_min, scaled_max)) {
         ESP_LOGE(tag, "Min illuminance cannot be greater than max illuminance.");
         return std::nullopt;
@@ -564,9 +736,14 @@ std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matt
     config.illuminance_measurement.max_measured_value = scaled_max;
     config.illuminance_measurement.measured_value = nullable<uint16_t>();
 
-    return finishEndpoint(esp_matter::endpoint::light_sensor::create(
-                              matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr),
-                          "Illuminance");
+    auto* endpoint = esp_matter::endpoint::light_sensor::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    addTolerance(endpoint,
+                 IlluminanceMeasurement::Id,
+                 esp_matter::cluster::illuminance_measurement::attribute::create_tolerance,
+                 tolerance,
+                 "illuminance");
+    return finishEndpoint(endpoint, "Illuminance");
 }
 
 // Remaining level (e.g. salt block) as HEPA Filter Monitoring "Condition": the only HA-mapped
@@ -702,6 +879,62 @@ std::optional<uint16_t> createPowerSourceEndpoint(esp_matter::node_t* matter_nod
     return endpoint_id;
 }
 
+// CO2 PeakMeasuredValue / AverageMeasuredValue over RollingStats::window_s, published once per
+// bucket (the window's step) rather than on every reading.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t updateCo2Statistics(const std::optional<float>& value,
+                              const std::optional<SensorValueRange>& range) {
+    if (!range.has_value() || !Co2ServerCluster::server_cluster.IsConstructed()) { return ESP_OK; }
+
+    const int64_t now_us = esp_timer_get_time();
+    if (value.has_value() && std::isfinite(*value)) { s_co2_stats.add(*value, now_us); }
+    if (s_co2_stats_published_us.has_value() &&
+        now_us - *s_co2_stats_published_us < RollingStats::bucket_us) {
+        return ESP_OK;
+    }
+
+    auto to_matter_val = [&range](const std::optional<float>& stat) {
+        const auto scaled = stat.has_value() ? matterScaleCarbonDioxideConcentration(*stat, *range)
+                                             : nullable<float>();
+        return scaled.is_null() ? DataModel::NullNullable : DataModel::MakeNullable(scaled.value());
+    };
+    auto& cluster = Co2ServerCluster::server_cluster.Cluster();
+    RETURN_ESP_ERR_ON_CHIP_FAIL(
+        cluster.SetPeakMeasuredValue(to_matter_val(s_co2_stats.peak(now_us))),
+        tag,
+        "Failed to update the CO2 peak");
+    RETURN_ESP_ERR_ON_CHIP_FAIL(
+        cluster.SetAverageMeasuredValue(to_matter_val(s_co2_stats.average(now_us))),
+        tag,
+        "Failed to update the CO2 average");
+    s_co2_stats_published_us = now_us;
+    return ESP_OK;
+}
+
+constexpr uint16_t root_endpoint_id = 0;
+
+// Wired builds (no battery gauge): a Power Source cluster (Wired feature, DC) on the root endpoint.
+bool addWiredRootPowerSource(esp_matter::node_t* matter_node) {
+    auto* root = esp_matter::endpoint::get(matter_node, root_endpoint_id);
+    esp_matter::cluster::power_source::config_t config;
+    config.status = chip::to_underlying(PowerSource::PowerSourceStatusEnum::kActive);
+    std::snprintf(config.description, sizeof(config.description), "%s", "Wired");
+    config.feature_flags = esp_matter::cluster::power_source::feature::wired::get_id();
+    config.features.wired.wired_current_type =
+        chip::to_underlying(PowerSource::WiredCurrentTypeEnum::kDc);
+    if (root == nullptr ||
+        esp_matter::cluster::power_source::create(root, &config, esp_matter::CLUSTER_FLAG_SERVER) ==
+            nullptr ||
+        esp_matter::endpoint::add_device_type(
+            root,
+            esp_matter::endpoint::power_source::get_device_type_id(),
+            esp_matter::endpoint::power_source::get_device_type_version()) != ESP_OK) {
+        return false;
+    }
+    ESP_LOGI(tag, "Wired power source added to the root endpoint");
+    return true;
+}
+
 esp_matter_attr_val_t toBatteryPercentAttr(const std::optional<float>& percent,
                                            const SensorValueRange& range) {
     return esp_matter_nullable_uint8(
@@ -830,8 +1063,11 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::TEMPERATURE>(ranges)) {
         auto& measurement = at<SensorType::TEMPERATURE>(measurements_);
         measurement.range = range;
-        measurement.endpoint_id = createTemperatureSensorEndpoint(
-            matter_node, matterScaleTemp(range->min, *range), matterScaleTemp(range->max, *range));
+        measurement.endpoint_id =
+            createTemperatureSensorEndpoint(matter_node,
+                                            matterScaleTemp(range->min, *range),
+                                            matterScaleTemp(range->max, *range),
+                                            matterTolerance(range->tolerance * matter_temp_scale));
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize temperature sensor.");
             return ESP_FAIL;
@@ -841,10 +1077,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::PRESSURE>(ranges)) {
         auto& measurement = at<SensorType::PRESSURE>(measurements_);
         measurement.range = range;
-        measurement.endpoint_id =
-            createPressureSensorEndpoint(matter_node,
-                                         matterScalePressureToKpa(range->min, *range),
-                                         matterScalePressureToKpa(range->max, *range));
+        measurement.endpoint_id = createPressureSensorEndpoint(matter_node, *range);
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize pressure sensor.");
             return ESP_FAIL;
@@ -854,10 +1087,11 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::RELATIVE_HUMIDITY>(ranges)) {
         auto& measurement = at<SensorType::RELATIVE_HUMIDITY>(measurements_);
         measurement.range = range;
-        measurement.endpoint_id =
-            createRelativeHumiditySensorEndpoint(matter_node,
-                                                 matterScaleRelativeHumidity(range->min, *range),
-                                                 matterScaleRelativeHumidity(range->max, *range));
+        measurement.endpoint_id = createRelativeHumiditySensorEndpoint(
+            matter_node,
+            matterScaleRelativeHumidity(range->min, *range),
+            matterScaleRelativeHumidity(range->max, *range),
+            matterTolerance(range->tolerance * matter_relative_humidity_scale));
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize relative humidity sensor.");
             return ESP_FAIL;
@@ -923,7 +1157,8 @@ MatterManager::init(const SensorRanges& ranges) {
         measurement.endpoint_id =
             createIlluminanceSensorEndpoint(matter_node,
                                             matterScaleIlluminance(range->min, *range),
-                                            matterScaleIlluminance(range->max, *range));
+                                            matterScaleIlluminance(range->max, *range),
+                                            matterIlluminanceTolerance(range->tolerance));
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize illuminance sensor.");
             return ESP_FAIL;
@@ -973,16 +1208,24 @@ MatterManager::init(const SensorRanges& ranges) {
             attach(at<SensorType::BATTERY_VOLTAGE>(measurements_), voltage_range);
             attach(at<SensorType::BATTERY_CHARGE_STATE>(measurements_), charge_state_range);
 
-            // The battery powers every other endpoint (shared ones listed once).
+            // The battery powers every other endpoint.
             s_power_source_endpoint_id = endpoint_id;
             s_powered_endpoint_ids.clear();
-            for (const auto& measurement : measurements_) {
-                const auto& powered_id = measurement.endpoint_id;
-                if (powered_id && powered_id != endpoint_id &&
-                    std::ranges::find(s_powered_endpoint_ids, *powered_id) ==
-                        s_powered_endpoint_ids.end()) {
-                    s_powered_endpoint_ids.push_back(*powered_id);
-                }
+        } else {
+            // Wired: the node's power source on the root endpoint, powering every endpoint.
+            if (!addWiredRootPowerSource(matter_node)) {
+                ESP_LOGE(tag, "Failed to initialize the wired power source.");
+                return ESP_FAIL;
+            }
+            s_power_source_endpoint_id = root_endpoint_id;
+            s_powered_endpoint_ids.assign(1, root_endpoint_id);
+        }
+        for (const auto& measurement : measurements_) { // shared endpoints listed once
+            const auto& powered_id = measurement.endpoint_id;
+            if (powered_id && powered_id != s_power_source_endpoint_id &&
+                std::ranges::find(s_powered_endpoint_ids, *powered_id) ==
+                    s_powered_endpoint_ids.end()) {
+                s_powered_endpoint_ids.push_back(*powered_id);
             }
         }
     }
@@ -1062,8 +1305,20 @@ esp_err_t MatterManager::updateValue(const std::optional<float> value,
     };
     const auto matter_val = to_matter_val(value);
 
+    // Pressure also publishes the Extended feature's finer ScaledValue.
+    constexpr bool has_scaled_value = std::is_same_v<Cluster, PressureMeasurementCluster>;
+    auto to_scaled_val = [&](const std::optional<float>& reading) {
+        const auto scaled = reading.has_value()
+                                ? matterScalePressureScaled(*reading, *measurement.range)
+                                : nullable<int16_t>();
+        return scaled.is_null() ? DataModel::NullNullable : DataModel::MakeNullable(scaled.value());
+    };
+    const bool unchanged = matter_val == to_matter_val(measurement.last_reported_value) &&
+                           (!has_scaled_value ||
+                            to_scaled_val(value) == to_scaled_val(measurement.last_reported_value));
+
     // Keep last_reported_value unchanged if scaled value did not change (e.g. sub-LSB step).
-    if (measurement.has_reported && matter_val == to_matter_val(measurement.last_reported_value)) {
+    if (measurement.has_reported && unchanged) {
         if ((now_us - measurement.last_report_time_us) >= report_max_interval_us) {
             measurement.last_report_time_us = now_us;
         }
@@ -1085,6 +1340,12 @@ esp_err_t MatterManager::updateValue(const std::optional<float> value,
                                 "Failed to update %s sensor endpoint with new %s value",
                                 type_name,
                                 type_name);
+    if constexpr (has_scaled_value) {
+        RETURN_ESP_ERR_ON_CHIP_FAIL(typed_cluster->SetScaledValue(to_scaled_val(value)),
+                                    tag,
+                                    "Failed to update the %s scaled value",
+                                    type_name);
+    }
 
     measurement.last_reported_value = value;
     measurement.last_report_time_us = now_us;
@@ -1176,6 +1437,8 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
         matterScaleCarbonDioxideConcentration,
         "carbon dioxide (CO2) concentration",
         CarbonDioxideConcentrationMeasurement::Id));
+    check(updateCo2Statistics(at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(values),
+                              at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(measurements_).range));
 
     check(updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
         at<SensorType::TVOC_CONCENTRATION>(values),

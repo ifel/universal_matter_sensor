@@ -17,10 +17,11 @@ Tmp117::~Tmp117() {
 }
 
 namespace {
-// Temperature (°C)
+// Temperature (°C). Tolerance: TMP117 at -20..50 °C (TMP119: ±0.08 °C).
 constexpr std::array type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -55.0F, .max = 150.0F, .abs_threshold = 0.05F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -55.0F, .max = 150.0F, .abs_threshold = 0.05F, .tolerance = 0.1F}},
 };
 } // namespace
 

@@ -72,11 +72,14 @@ Veml7700::~Veml7700() {
 }
 
 namespace {
-// Illuminance (lx)
+// Illuminance (lx), tolerance ±15 %
 constexpr std::array type_ranges = {
-    SensorTypeRange{
-        .type = SensorType::ILLUMINANCE,
-        .range = {.min = 1.0F, .max = 140'000.0F, .abs_threshold = 1.0F, .rel_threshold = 0.03F}},
+    SensorTypeRange{.type = SensorType::ILLUMINANCE,
+                    .range = {.min = 1.0F,
+                              .max = 140'000.0F,
+                              .abs_threshold = 1.0F,
+                              .rel_threshold = 0.03F,
+                              .tolerance = 0.15F}},
 };
 } // namespace
 

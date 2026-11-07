@@ -14,6 +14,9 @@ struct SensorValueRange {
     float abs_threshold{
         0.0F}; // Minimum absolute change to report immediately (same unit as min/max)
     float rel_threshold{0.0F}; // Minimum relative change as a fraction of |last_reported_value|
+    // Datasheet accuracy (±, same unit; a fraction of the reading for ILLUMINANCE), published as
+    // the Matter Tolerance attribute; 0 = not published.
+    float tolerance{0.0F};
 };
 
 // Sensor measurement types (Temperature: °C, Pressure: Pa, Relative Humidity: %RH, Carbon Dioxide

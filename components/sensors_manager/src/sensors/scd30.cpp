@@ -42,12 +42,14 @@ Scd30::~Scd30() {
 
 namespace {
 // Temperature (°C) and humidity (%RH) from the embedded SHT31, CO2 (ppm), air quality
-// (AirQualityLevel, from CO2)
+// (AirQualityLevel, from CO2). Temperature tolerance at 25 °C; none for CO2 (±(30 ppm + 3 %)).
 constexpr std::array type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -40.0F, .max = 70.0F, .abs_threshold = 0.20F}},
-    SensorTypeRange{.type = SensorType::RELATIVE_HUMIDITY,
-                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -40.0F, .max = 70.0F, .abs_threshold = 0.20F, .tolerance = 0.4F}},
+    SensorTypeRange{
+        .type = SensorType::RELATIVE_HUMIDITY,
+        .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F, .tolerance = 3.0F}},
     SensorTypeRange{
         .type = SensorType::CARBON_DIOXIDE_CONCENTRATION,
         .range = {.min = 400.0F, .max = 10000.0F, .abs_threshold = 20.0F, .rel_threshold = 0.02F}},

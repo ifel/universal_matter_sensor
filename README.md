@@ -124,6 +124,13 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Tm
 | **SCD30 + ENS160** | **SCD30** | **SCD30** | *Not created* | **SCD30** *(supersedes ENS160)* | **ENS160** | Worst of **SCD30** & **ENS160** | *Not created* |
 | **SHT4x + BMP581 + SCD30 + ENS160 + VEML7700** | **SHT4x** *(supersedes all)* | **SHT4x** *(supersedes all)* | **BMP581** | **SCD30** *(pressure-compensated)* | **ENS160** | Worst of **SCD30** & **ENS160** | **VEML7700** |
 
+### Matter Attributes Beyond the Measured Value
+
+- **Tolerance**: Temperature, Relative Humidity, Pressure and Illuminance publish the owning sensor's datasheet accuracy as their `Tolerance` attribute (Pressure also as `ScaledTolerance`). SHT4x uses the SHT40/41 figures, since the variant is not read; the SCD30's CO₂ accuracy (`±(30 ppm + 3%)`) is not a constant, so CO₂ has none.
+- **Pressure**: the *Extended* feature adds `ScaledValue` with `Scale = -1` (`10 Pa` = `0.1 hPa` steps) next to `MeasuredValue` (`1 hPa`). It is reported with the same deadband (`50 Pa`).
+- **CO₂**: the *Peak Measurement* and *Average Measurement* features publish the peak and average of the last hour (`PeakMeasuredValueWindow` / `AverageMeasuredValueWindow` = `3600 s`). The window slides in 5-minute steps, and both are refreshed every 5 minutes.
+- **Power Source**: without a MAX17048, the root endpoint carries a *Wired* (DC) Power Source powering every endpoint; with one, see [Battery](#battery-max17048).
+
 ### Remaining Level (VL53L1X)
 
 The **VL53L1X** measures the distance to a consumable (e.g. the top of a water softener's salt block) and the device converts it to **% remaining**: `CONFIG_VL53L1X_FULL_DISTANCE_MM` (default `30`) is 100%, `FULL_DISTANCE + CONFIG_VL53L1X_LEVEL_HEIGHT_MM` (default `30 + 290 = 320 mm`) is 0%, linear in between and clamped. Each reading is the median of 5 valid samples.

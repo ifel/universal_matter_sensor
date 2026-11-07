@@ -19,12 +19,14 @@ Bmp581::~Bmp581() {
 }
 
 namespace {
-// Temperature (°C), pressure (Pa)
+// Temperature (°C), pressure (Pa; tolerance is the absolute accuracy)
 constexpr std::array type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
-    SensorTypeRange{.type = SensorType::PRESSURE,
-                    .range = {.min = 30000.0F, .max = 125000.0F, .abs_threshold = 50.0F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F, .tolerance = 0.5F}},
+    SensorTypeRange{
+        .type = SensorType::PRESSURE,
+        .range = {.min = 30000.0F, .max = 125000.0F, .abs_threshold = 50.0F, .tolerance = 30.0F}},
 };
 } // namespace
 

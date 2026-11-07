@@ -18,19 +18,24 @@ Bmp280Bme280::~Bmp280Bme280() {
 namespace {
 // Temperature (°C), pressure (Pa), relative humidity (%RH)
 constexpr std::array bme280_type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
-    SensorTypeRange{.type = SensorType::PRESSURE,
-                    .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F}},
-    SensorTypeRange{.type = SensorType::RELATIVE_HUMIDITY,
-                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F, .tolerance = 1.0F}},
+    SensorTypeRange{
+        .type = SensorType::PRESSURE,
+        .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F, .tolerance = 100.0F}},
+    SensorTypeRange{
+        .type = SensorType::RELATIVE_HUMIDITY,
+        .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F, .tolerance = 3.0F}},
 };
 // BMP280: no humidity
 constexpr std::array bmp280_type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
-    SensorTypeRange{.type = SensorType::PRESSURE,
-                    .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F, .tolerance = 1.0F}},
+    SensorTypeRange{
+        .type = SensorType::PRESSURE,
+        .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F, .tolerance = 100.0F}},
 };
 } // namespace
 

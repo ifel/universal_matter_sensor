@@ -11,12 +11,15 @@ Sht4x::~Sht4x() {
 }
 
 namespace {
-// Temperature (°C), relative humidity (%RH)
+// Temperature (°C), relative humidity (%RH). Tolerance: SHT40/41, as the variant is not read
+// (SHT45: ±0.1 °C / ±1.0 %RH).
 constexpr std::array type_ranges = {
-    SensorTypeRange{.type = SensorType::TEMPERATURE,
-                    .range = {.min = -40.0F, .max = 125.0F, .abs_threshold = 0.08F}},
-    SensorTypeRange{.type = SensorType::RELATIVE_HUMIDITY,
-                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.20F}},
+    SensorTypeRange{
+        .type = SensorType::TEMPERATURE,
+        .range = {.min = -40.0F, .max = 125.0F, .abs_threshold = 0.08F, .tolerance = 0.2F}},
+    SensorTypeRange{
+        .type = SensorType::RELATIVE_HUMIDITY,
+        .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.20F, .tolerance = 1.8F}},
 };
 } // namespace
 
