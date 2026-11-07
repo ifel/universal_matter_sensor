@@ -3,7 +3,6 @@
 
 // Provides CHIP_DEVICE_CONFIG_ENABLE_THREAD used below.
 #include <esp_matter.h>
-#include <esp_task_wdt.h>
 #include <esp_timer.h>
 
 #include "esp_err.h"
@@ -27,8 +26,10 @@ constexpr int64_t sensor_read_delay_ms =
 
 constexpr uint32_t restart_delay_ms = 10000;
 
-// Watchdog slack on top of one read interval (sensor init, slow reads).
-constexpr uint32_t watchdog_margin_ms = 60000;
+// Loop watchdog slack on top of one read interval (sensor init, slow reads).
+constexpr int64_t loop_watchdog_margin_ms = 60000;
+constexpr uint64_t loop_watchdog_timeout_us =
+    static_cast<uint64_t>(sensor_read_delay_ms + loop_watchdog_margin_ms) * 1000U;
 
 namespace {
 // Logs the reason and reboots so a transient fault (wiring, power) can recover.
@@ -39,23 +40,28 @@ namespace {
     esp_restart();
 }
 
-// Reboots (via panic) if this task stops feeding the watchdog, e.g. a driver blocked on I2C.
-void subscribeToWatchdog() {
-    uint32_t idle_core_mask = 0;
-#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-    idle_core_mask |= 1U << 0;
-#endif
-#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
-    idle_core_mask |= 1U << 1;
-#endif
-    const esp_task_wdt_config_t config = {
-        .timeout_ms = static_cast<uint32_t>(sensor_read_delay_ms) + watchdog_margin_ms,
-        .idle_core_mask = idle_core_mask,
-        .trigger_panic = true,
-    };
-    esp_err_t err = esp_task_wdt_reconfigure(&config);
-    if (err == ESP_OK) { err = esp_task_wdt_add(nullptr); }
-    if (err != ESP_OK) { ESP_LOGE(tag, "Task watchdog setup failed: %s", esp_err_to_name(err)); }
+// Loop watchdog: a one-shot timer the read loop restarts every cycle. If the loop stops coming
+// back (e.g. a driver blocked on I2C), it aborts, so the panic handler logs and reboots. It is
+// separate from the task watchdog, whose short idle-task timeout must not depend on the read
+// interval.
+void loopStalled(void* /*arg*/) {
+    esp_system_abort("Sensor read loop stalled");
+}
+
+esp_timer_handle_t startLoopWatchdog() {
+    const esp_timer_create_args_t args = {.callback = loopStalled, .name = "loop_watchdog"};
+    esp_timer_handle_t timer = nullptr;
+    esp_err_t err = esp_timer_create(&args, &timer);
+    if (err == ESP_OK) { err = esp_timer_start_once(timer, loop_watchdog_timeout_us); }
+    if (err != ESP_OK) {
+        ESP_LOGE(tag, "Loop watchdog setup failed: %s", esp_err_to_name(err));
+        return nullptr;
+    }
+    return timer;
+}
+
+void feedLoopWatchdog(esp_timer_handle_t timer) {
+    if (timer != nullptr) { esp_timer_restart(timer, loop_watchdog_timeout_us); }
 }
 
 // How each reading is logged: value * scale with the given decimals, then the unit.
@@ -153,7 +159,7 @@ extern "C" void app_main() {
     set_openthread_platform_config(&config);
 #endif
 
-    subscribeToWatchdog();
+    esp_timer_handle_t loop_watchdog = startLoopWatchdog();
 
     // Initialize SensorsManager
     SensorsManager sensors_manager;
@@ -191,7 +197,7 @@ extern "C" void app_main() {
     SensorReadings compensations{};
     // Sensor read loop
     while (true) {
-        esp_task_wdt_reset();
+        feedLoopWatchdog(loop_watchdog);
         const int64_t cycle_start_us = esp_timer_get_time();
         err = sensors_manager.readValues(compensations);
         if (err != ESP_OK) {
