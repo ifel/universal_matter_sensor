@@ -11,6 +11,7 @@
 #include <app/clusters/air-quality-server/AirQualityCluster.h>
 #include <app/clusters/concentration-measurement-server/ConcentrationMeasurementCluster.h>
 #include <app/clusters/illuminance-measurement-server/IlluminanceMeasurementCluster.h>
+#include <app/clusters/occupancy-sensor-server/OccupancySensingCluster.h>
 #include <app/clusters/power-source-server/power-source-server.h>
 #include <app/clusters/pressure-measurement-server/PressureMeasurementCluster.h>
 #include <app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.h>
@@ -863,6 +864,59 @@ esp_matter_attr_val_t toBatteryChargeStateAttr(const std::optional<float>& state
                                   : chip::to_underlying(PowerSource::BatChargeStateEnum::kUnknown));
 }
 
+// Presence as Occupancy Sensing (Radar feature) with HoldTime: the cluster delays "unoccupied" by
+// HoldTime, which controllers can write and the SDK persists.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+std::optional<uint16_t> createOccupancyEndpoint(esp_matter::node_t* matter_node) {
+    static constexpr const char* type_name = "Occupancy";
+    static constexpr uint16_t default_hold_time_s = 30; // SDK default; limits are 1..300 s
+
+    esp_matter::endpoint::occupancy_sensor::config_t config;
+    config.occupancy_sensing.feature_flags =
+        esp_matter::cluster::occupancy_sensing::feature::radar::get_id();
+    auto* endpoint = esp_matter::endpoint::occupancy_sensor::create(
+        matter_node, &config, esp_matter::ENDPOINT_FLAG_NONE, nullptr);
+    auto* cluster =
+        endpoint == nullptr ? nullptr : esp_matter::cluster::get(endpoint, OccupancySensing::Id);
+    if (cluster == nullptr ||
+        esp_matter::cluster::occupancy_sensing::attribute::create_hold_time(
+            cluster, default_hold_time_s) == nullptr ||
+        esp_matter::cluster::occupancy_sensing::event::create_occupancy_changed(cluster) ==
+            nullptr) {
+        ESP_LOGE(tag, "Failed to create %s sensor endpoint.", type_name);
+        return std::nullopt;
+    }
+    return finishEndpoint(endpoint, type_name);
+}
+
+// Transitions only: SetOccupancy(false) restarts the hold timer on every call. Occupancy is not
+// nullable, so an unavailable sensor reports clear (after the hold time) rather than a stuck state.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+esp_err_t updateOccupancy(const std::optional<uint16_t> endpoint_id,
+                          const std::optional<float> value,
+                          std::optional<float>& last_reported_value) {
+    if (!endpoint_id.has_value()) { return ESP_OK; }
+    const bool available = value.has_value() && std::isfinite(*value);
+    const bool occupied = available && *value >= 0.5F;
+    if (last_reported_value.has_value() && (*last_reported_value >= 0.5F) == occupied) {
+        return ESP_OK;
+    }
+
+    auto* cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+        ConcreteClusterPath(*endpoint_id, OccupancySensing::Id));
+    if (cluster == nullptr) {
+        ESP_LOGE(tag, "Occupancy sensing cluster not found for endpoint %u", *endpoint_id);
+        return ESP_ERR_NOT_FOUND;
+    }
+    // Registry entry for this cluster id is registered as exactly OccupancySensingCluster.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+    static_cast<OccupancySensingCluster*>(cluster)->SetOccupancy(occupied);
+    if (!available) { ESP_LOGW(tag, "Occupancy sensor unavailable, reporting clear"); }
+    ESP_LOGI(tag, "Updating occupancy to %s", occupied ? "occupied" : "clear (after hold time)");
+    last_reported_value = occupied ? 1.0F : 0.0F;
+    return ESP_OK;
+}
+
 // Mandatory BatChargeLevel, derived from the battery percentage; kept as is when unavailable and
 // written only when the level changes.
 esp_err_t updateBatteryChargeLevel(const std::optional<uint16_t> endpoint_id,
@@ -1021,6 +1075,16 @@ MatterManager::init(const SensorRanges& ranges) {
         measurement.endpoint_id = createRemainingLevelEndpoint(matter_node);
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize remaining level sensor.");
+            return ESP_FAIL;
+        }
+    }
+
+    if (const auto& range = at<SensorType::OCCUPANCY>(ranges)) {
+        auto& measurement = at<SensorType::OCCUPANCY>(measurements_);
+        measurement.range = range;
+        measurement.endpoint_id = createOccupancyEndpoint(matter_node);
+        if (!measurement.endpoint_id) {
+            ESP_LOGE(tag, "Failed to initialize occupancy sensor.");
             return ESP_FAIL;
         }
     }
@@ -1207,6 +1271,16 @@ esp_err_t MatterManager::updateAttribute(const std::optional<float> value,
     return ESP_OK;
 }
 
+esp_err_t MatterManager::updateValue(const SensorType type, const std::optional<float> value) {
+    esp_matter::lock::ScopedChipStackLock lock(portMAX_DELAY);
+
+    if (type == SensorType::OCCUPANCY) {
+        auto& measurement = at<SensorType::OCCUPANCY>(measurements_);
+        return updateOccupancy(measurement.endpoint_id, value, measurement.last_reported_value);
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     esp_matter::lock::ScopedChipStackLock lock(portMAX_DELAY);
 
@@ -1264,6 +1338,9 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     result = updateRemainingLevel(at<SensorType::REMAINING_LEVEL>(measurements_).endpoint_id,
                                   at<SensorType::REMAINING_LEVEL>(values));
     if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+
+    // OCCUPANCY is pushed (updateValue(type, value)) only: a polled value could be older than a
+    // pushed transition.
 
     result = updateAttribute(at<SensorType::BATTERY_PERCENT>(values),
                              at<SensorType::BATTERY_PERCENT>(measurements_),

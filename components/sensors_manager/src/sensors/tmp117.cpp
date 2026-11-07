@@ -39,6 +39,7 @@ std::optional<SensorValueRange> Tmp117::getValueRangeForType(SensorType type) co
     case SensorType::BATTERY_PERCENT:
     case SensorType::BATTERY_VOLTAGE:
     case SensorType::BATTERY_CHARGE_STATE:
+    case SensorType::OCCUPANCY:
         return std::nullopt;
     }
     return std::nullopt;

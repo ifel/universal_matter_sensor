@@ -31,6 +31,8 @@ class SensorsManager {
     SensorRanges getRanges() const;
     const char* getSensorModelNameForType(SensorType sensor_type) const;
     bool isSensorsDetected() const;
+    // Forwards pushed readings of types each sensor owns; call once, after init().
+    void setReadingListener(const Sensor::ReadingListener& listener);
 
   private:
     std::vector<std::unique_ptr<Sensor>> active_sensors_;

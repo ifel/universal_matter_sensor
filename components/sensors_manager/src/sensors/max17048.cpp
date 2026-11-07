@@ -77,6 +77,7 @@ std::optional<SensorValueRange> Max17048::getValueRangeForType(SensorType type) 
     case SensorType::TVOC_CONCENTRATION:
     case SensorType::AIR_QUALITY:
     case SensorType::REMAINING_LEVEL:
+    case SensorType::OCCUPANCY:
         return std::nullopt;
     case SensorType::BATTERY_PERCENT:
         return SensorValueRange{

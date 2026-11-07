@@ -4,9 +4,13 @@
 #include <array>
 
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "sensors/bmp280_bme280.h"
 #include "sensors/bmp581.h"
 #include "sensors/ens160.h"
+#if CONFIG_LD2410S_ENABLED
+#    include "sensors/ld2410s.h"
+#endif
 #include "sensors/max17048.h"
 #include "sensors/scd30.h"
 #include "sensors/sht4x.h"
@@ -43,18 +47,22 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     }
 
     // Add new sensor drivers here.
-    std::array<std::unique_ptr<Sensor>, 10> candidates = {std::make_unique<Tmp117>(),
-                                                          std::make_unique<Sht4x>(),
-                                                          std::make_unique<Bmp581>(),
-                                                          std::make_unique<Bmp280Bme280>(),
-                                                          std::make_unique<Scd30>(),
-                                                          std::make_unique<Ens160>(),
-                                                          std::make_unique<Veml7700>(),
-                                                          // Before Tsl2591: both use 0x29, and the
-                                                          // VL53L1X ID check writes to the bus.
-                                                          std::make_unique<Vl53l1x>(),
-                                                          std::make_unique<Tsl2591>(),
-                                                          std::make_unique<Max17048>()};
+    auto candidates = std::to_array<std::unique_ptr<Sensor>>({
+        std::make_unique<Tmp117>(),
+        std::make_unique<Sht4x>(),
+        std::make_unique<Bmp581>(),
+        std::make_unique<Bmp280Bme280>(),
+        std::make_unique<Scd30>(),
+        std::make_unique<Ens160>(),
+        std::make_unique<Veml7700>(),
+        // Before Tsl2591: both use 0x29, and the VL53L1X ID check writes to the bus.
+        std::make_unique<Vl53l1x>(),
+        std::make_unique<Tsl2591>(),
+        std::make_unique<Max17048>(),
+#if CONFIG_LD2410S_ENABLED
+        std::make_unique<Ld2410s>(),
+#endif
+    });
 
     for (auto& sensor : candidates) {
         if (sensor->init(read_interval_ms) != ESP_OK) {
@@ -169,6 +177,16 @@ const char* SensorsManager::getSensorModelNameForType(const SensorType sensor_ty
         return sensor->getModelName();
     }
     return "Unknown";
+}
+
+void SensorsManager::setReadingListener(const Sensor::ReadingListener& listener) {
+    for (const auto& sensor : active_sensors_) {
+        sensor->setReadingListener(
+            [this, owner = sensor.get(), listener](SensorType type, std::optional<float> value) {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                if (sensors_by_type_[toIndex(type)] == owner) { listener(type, value); }
+            });
+    }
 }
 
 bool SensorsManager::isSensorsDetected() const {

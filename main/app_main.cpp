@@ -59,7 +59,8 @@ void subscribeToWatchdog() {
 }
 } // namespace
 
-// NOLINTNEXTLINE(readability-identifier-naming, readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-identifier-naming, readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 extern "C" void app_main() {
     // Initialize NVS
     ESP_LOGI(tag, "Initializing NVS...");
@@ -124,6 +125,11 @@ extern "C" void app_main() {
         restartAfterFailure("Matter initialization failed");
     }
     ESP_LOGI(tag, "Matter initialized.");
+    // Event-driven readings (e.g. presence) skip the read interval.
+    sensors_manager.setReadingListener(
+        [&matter_manager](SensorType type, std::optional<float> value) {
+            matter_manager.updateValue(type, value);
+        });
     status_led.setReady(true);
 
     SensorReadings compensations{};
@@ -150,6 +156,7 @@ extern "C" void app_main() {
         const auto& battery_percent = at<SensorType::BATTERY_PERCENT>(readings);
         const auto& battery_voltage = at<SensorType::BATTERY_VOLTAGE>(readings);
         const auto& battery_charge_state = at<SensorType::BATTERY_CHARGE_STATE>(readings);
+        const auto& occupancy = at<SensorType::OCCUPANCY>(readings);
         if (temperature.has_value()) {
             ESP_LOGI(tag,
                      "Temperature = %.2f°C from %s",
@@ -217,6 +224,12 @@ extern "C" void app_main() {
                      *battery_charge_state,
                      sensors_manager.getSensorModelNameForType(SensorType::BATTERY_CHARGE_STATE));
         }
+        if (occupancy.has_value()) {
+            ESP_LOGI(tag,
+                     "Occupancy = %.0f from %s",
+                     *occupancy,
+                     sensors_manager.getSensorModelNameForType(SensorType::OCCUPANCY));
+        }
 
         compensations = readings;
 
@@ -233,3 +246,5 @@ extern "C" void app_main() {
         }
     }
 }
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-identifier-naming, readability-function-cognitive-complexity)

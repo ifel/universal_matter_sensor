@@ -34,8 +34,11 @@ class MatterManager {
 
     // Creates an endpoint for every type that has a range.
     esp_err_t init(const SensorRanges& ranges);
-    // Values in °C, Pa, %RH; nullopt publishes a null measurement.
+    // Values in °C, Pa, %RH; nullopt publishes a null measurement. Skips pushed types (OCCUPANCY).
     esp_err_t updateValues(const SensorReadings& values);
+    // Publishes one pushed reading right away (callable from any task); only OCCUPANCY so far.
+    // Pushes must come in order (one task per type).
+    esp_err_t updateValue(SensorType type, std::optional<float> value);
 
   private:
     struct Measurement {

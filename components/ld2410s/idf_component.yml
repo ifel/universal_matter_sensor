@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest File
+description: Hi-Link HLK-LD2410S low-power 24 GHz presence radar driver (UART)
+license: MIT
+dependencies:
+  idf:
+    version: '>=6.1.0'

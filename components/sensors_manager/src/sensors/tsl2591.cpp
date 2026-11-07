@@ -98,6 +98,7 @@ std::optional<SensorValueRange> Tsl2591::getValueRangeForType(SensorType type) c
     case SensorType::BATTERY_PERCENT:
     case SensorType::BATTERY_VOLTAGE:
     case SensorType::BATTERY_CHARGE_STATE:
+    case SensorType::OCCUPANCY:
         return std::nullopt;
     case SensorType::ILLUMINANCE:
         return SensorValueRange{.min = illum_min_lux,

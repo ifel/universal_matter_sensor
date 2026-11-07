@@ -83,6 +83,7 @@ $$\text{threshold} \approx \max\!\big(2.5 \times \text{Repeatability}_{3\sigma},
 | **Analog Devices MAX17048** | **Battery Percent** | `0 .. 100 %` | `1/256 %` | ModelGauge output, smooth | Depends on battery model / cycles (uncalibrated) | `0.5 %` | **`1 %`** | **`0.0`** |
 | **Analog Devices MAX17048** | **Battery Voltage** | `0 .. 5.12 V` | `78.125 µV` | `~±1 mV` | `±7.5 mV` | `1 mV` | **`10 mV`** | **`0.0`** |
 | **Analog Devices MAX17048** | **Battery Charge State** *(from charge rate)* | `charging / full / not charging` | `1` state | — | — | `1` state | **`1` state** | **`0.0`** |
+| **Hi-Link HLK-LD2410S** | **Occupancy** *(pushed on change)* | `clear / occupied` | `1` state | — | — | `1` state | **every change** *(not polled; HoldTime off-delay)* | **`0.0`** |
 
 > **¹ Note on Pressure (`50 Pa` vs `100 Pa`):**
 > Matter's `PressureMeasurementCluster` `MeasuredValue` attribute is `int16_t` in **`0.1 kPa` (`100 Pa = 1 hPa`)** units. Setting `abs_threshold = 50 Pa` (`0.5 hPa`, half a Matter LSB) ensures that any `0.5–1.0 hPa` change that crosses a rounding boundary updates Matter immediately, while ignoring `< 50 Pa` fluctuations that round to the same Matter integer anyway.

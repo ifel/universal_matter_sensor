@@ -74,6 +74,7 @@ std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) con
     case SensorType::BATTERY_PERCENT:
     case SensorType::BATTERY_VOLTAGE:
     case SensorType::BATTERY_CHARGE_STATE:
+    case SensorType::OCCUPANCY:
     case SensorType::ILLUMINANCE:
     case SensorType::TVOC_CONCENTRATION:
         return std::nullopt;

@@ -37,4 +37,35 @@ menu "Sensors Configuration"
             How much farther the target is when empty (e.g. the salt block height): the distance
             FULL_DISTANCE + LEVEL_HEIGHT is reported as 0% remaining.
 
+    config LD2410S_ENABLED
+        bool "Probe for an HLK-LD2410S presence radar"
+        default y
+        help
+            Probes the UART below at boot (about 1 s without a radar) and claims its pins.
+
+    config LD2410S_UART_PORT
+        int "LD2410S UART port"
+        depends on LD2410S_ENABLED
+        range 0 2
+        default 1
+        help
+            UART used for the HLK-LD2410S presence radar (115200 8N1). Keep it off the console UART.
+
+    config LD2410S_TX_GPIO
+        int "LD2410S: ESP TX GPIO (to the module's RX)"
+        depends on LD2410S_ENABLED
+        default 16
+        help
+            GPIO 16 is pin D6 (TX) on the Seeed Studio XIAO ESP32C6. It is also UART0's default
+            TX pin, so the console must not be on UART0 (sdkconfig.defaults.esp32c6 moves it to
+            USB Serial/JTAG).
+
+    config LD2410S_RX_GPIO
+        int "LD2410S: ESP RX GPIO (from the module's TX/OT1)"
+        depends on LD2410S_ENABLED
+        default 17
+        help
+            GPIO 17 is pin D7 (RX) on the Seeed Studio XIAO ESP32C6, also UART0's default RX pin
+            (see LD2410S_TX_GPIO).
+
 endmenu

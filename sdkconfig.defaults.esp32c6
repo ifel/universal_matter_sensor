@@ -1,0 +1,3 @@
+# Console (logs and CHIP shell) on the USB Serial/JTAG port (the XIAO ESP32C6's USB-C). UART0's
+# default pins GPIO16/17 are the LD2410S's UART pins, so UART0 must not carry the console.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

@@ -64,6 +64,7 @@ std::optional<SensorValueRange> Ens160::getValueRangeForType(SensorType type) co
     case SensorType::BATTERY_PERCENT:
     case SensorType::BATTERY_VOLTAGE:
     case SensorType::BATTERY_CHARGE_STATE:
+    case SensorType::OCCUPANCY:
     case SensorType::RELATIVE_HUMIDITY:
     case SensorType::ILLUMINANCE:
         return std::nullopt;

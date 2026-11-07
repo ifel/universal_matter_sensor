@@ -56,6 +56,7 @@ std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType ty
     case SensorType::BATTERY_PERCENT:
     case SensorType::BATTERY_VOLTAGE:
     case SensorType::BATTERY_CHARGE_STATE:
+    case SensorType::OCCUPANCY:
         return std::nullopt;
     }
     return std::nullopt;
