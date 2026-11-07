@@ -36,8 +36,19 @@ class Scd30 : public Sensor {
     esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
 
   private:
+    struct Measurement {
+        float co2{};
+        float temperature{};
+        float relative_humidity{};
+        int64_t time_us{}; // esp_timer time of the read
+    };
+
+    void updatePressureCompensation(const SensorReadings& compensations);
+
     i2c_dev_t sensor_{};
-    uint16_t pressure_comp_{}; // mBar
+    uint16_t pressure_comp_{}; // mBar, 0 = none
+    uint16_t interval_s_{};    // measurement interval
+    std::optional<Measurement> last_measurement_;
     bool initialized_ = false; // true only after a successful init()
 };
 
