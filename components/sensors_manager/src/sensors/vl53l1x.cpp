@@ -167,8 +167,9 @@ esp_err_t Vl53l1x::read(SensorReadings& readings, const SensorReadings& /*compen
             distances[valid++] = result.distance_mm;
         }
     }
+    // No valid target is a reading condition, not a device fault (no re-init).
     ESP_RETURN_ON_FALSE(valid == samples_per_read,
-                        ESP_ERR_INVALID_RESPONSE,
+                        ESP_ERR_NOT_FINISHED,
                         tag,
                         "Only %u of %u samples valid (target out of range or weak signal)",
                         static_cast<unsigned int>(valid),

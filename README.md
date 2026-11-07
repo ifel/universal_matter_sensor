@@ -124,6 +124,8 @@ At boot, `SensorsManager` probes registered I2C sensors in priority order (**`Tm
 | **SCD30 + ENS160** | **SCD30** | **SCD30** | *Not created* | **SCD30** *(supersedes ENS160)* | **ENS160** | Worst of **SCD30** & **ENS160** | *Not created* |
 | **SHT4x + BMP581 + SCD30 + ENS160 + VEML7700** | **SHT4x** *(supersedes all)* | **SHT4x** *(supersedes all)* | **BMP581** | **SCD30** *(pressure-compensated)* | **ENS160** | Worst of **SCD30** & **ENS160** | **VEML7700** |
 
+**Recovery**: a sensor whose read fails 3 times in a row (not counting "no result yet", such as warm-up or no VL53L1X target) is re-initialized after an I2C bus reset; its values are null until it recovers, and a failed re-init is retried after 3 more failures. The set of sensors and endpoints is fixed at boot.
+
 ### Matter Attributes Beyond the Measured Value
 
 - **Tolerance**: Temperature, Relative Humidity, Pressure and Illuminance publish the owning sensor's datasheet accuracy as their `Tolerance` attribute (Pressure also as `ScaledTolerance`). SHT4x uses the SHT40/41 figures, since the variant is not read; the SCD30's CO₂ accuracy (`±(30 ppm + 3%)`) is not a constant, so CO₂ has none.
