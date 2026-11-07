@@ -164,8 +164,9 @@ extern "C" void app_main() {
 
     esp_timer_handle_t loop_watchdog = startLoopWatchdog();
 
+    // Long-lived objects are static: the main task's stack (Matter starts on it) is small.
     // Initialize SensorsManager
-    SensorsManager sensors_manager;
+    static SensorsManager sensors_manager;
     if (sensors_manager.init(sensor_read_delay_ms) != ESP_OK) {
         restartAfterFailure("Sensors initialization failed");
     }
@@ -175,17 +176,17 @@ extern "C" void app_main() {
     }
 
     // Initialize status LED and drive it from Matter state changes
-    StatusLed status_led;
+    static StatusLed status_led;
     status_led.init();
 
     // Initialize Matter
     ESP_LOGI(tag, "Initializing Matter interface...");
-    MatterManager matter_manager;
+    static MatterManager matter_manager;
     matter_manager.setListeners({
-        .on_commissioning_window = [&status_led](bool open) { status_led.setCommissioning(open); },
-        .on_identify = [&status_led](bool identifying) { status_led.setIdentifying(identifying); },
+        .on_commissioning_window = [](bool open) { status_led.setCommissioning(open); },
+        .on_identify = [](bool identifying) { status_led.setIdentifying(identifying); },
         .on_remaining_level_reset =
-            [&sensors_manager] { sensors_manager.requestCalibration(SensorType::REMAINING_LEVEL); },
+            [] { sensors_manager.requestCalibration(SensorType::REMAINING_LEVEL); },
     });
     err = matter_manager.init(sensors_manager.getRanges());
     if (err != ESP_OK) {
@@ -194,10 +195,9 @@ extern "C" void app_main() {
     }
     ESP_LOGI(tag, "Matter initialized.");
     // Event-driven readings (e.g. presence) skip the read interval.
-    sensors_manager.setReadingListener(
-        [&matter_manager](SensorType type, std::optional<float> value) {
-            matter_manager.updateValue(type, value);
-        });
+    sensors_manager.setReadingListener([](SensorType type, std::optional<float> value) {
+        matter_manager.updateValue(type, value);
+    });
     status_led.setReady(true);
 
     SensorReadings compensations{};
