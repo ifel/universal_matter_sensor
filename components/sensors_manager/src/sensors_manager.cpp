@@ -102,7 +102,8 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
         ESP_LOGI(tag, "Air quality: worst of %s", air_quality_model_names_.c_str());
     }
 
-    initialized_ = true;
+    // With nothing found, init() can be called again to re-probe.
+    initialized_ = !active_sensors_.empty();
     return ESP_OK;
 }
 

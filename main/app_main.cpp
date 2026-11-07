@@ -26,6 +26,9 @@ constexpr int64_t sensor_read_delay_ms =
 
 constexpr uint32_t restart_delay_ms = 10000;
 
+// With no sensor found at boot, how often to probe again.
+constexpr int64_t reprobe_interval_us = 60LL * 1'000'000;
+
 // Loop watchdog slack on top of one read interval (sensor init, slow reads).
 constexpr int64_t loop_watchdog_margin_ms = 60000;
 constexpr uint64_t loop_watchdog_timeout_us =
@@ -166,7 +169,10 @@ extern "C" void app_main() {
     if (sensors_manager.init(sensor_read_delay_ms) != ESP_OK) {
         restartAfterFailure("Sensors initialization failed");
     }
-    if (!sensors_manager.isSensorsDetected()) { restartAfterFailure("No sensors detected"); }
+    // Matter still starts, so the device stays reachable (e.g. for an OTA update).
+    if (!sensors_manager.isSensorsDetected()) {
+        ESP_LOGE(tag, "No sensors detected: starting Matter without sensor endpoints");
+    }
 
     // Initialize status LED and drive it from Matter state changes
     StatusLed status_led;
@@ -195,10 +201,25 @@ extern "C" void app_main() {
     status_led.setReady(true);
 
     SensorReadings compensations{};
+    int64_t last_probe_us = esp_timer_get_time();
     // Sensor read loop
     while (true) {
         feedLoopWatchdog(loop_watchdog);
         const int64_t cycle_start_us = esp_timer_get_time();
+        if (!sensors_manager.isSensorsDetected()) {
+            // Endpoints are created at startup, so a sensor found now needs a reboot.
+            if (cycle_start_us - last_probe_us >= reprobe_interval_us) {
+                last_probe_us = cycle_start_us;
+                if (sensors_manager.init(sensor_read_delay_ms) == ESP_OK &&
+                    sensors_manager.isSensorsDetected()) {
+                    ESP_LOGW(tag, "Sensors detected, restarting to create their Matter endpoints");
+                    esp_restart();
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(sensor_read_delay_ms));
+            continue;
+        }
+
         err = sensors_manager.readValues(compensations);
         if (err != ESP_OK) {
             ESP_LOGE(tag, "Failed to read sensor data: %s", esp_err_to_name(err));
