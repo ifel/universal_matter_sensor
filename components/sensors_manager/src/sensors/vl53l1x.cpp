@@ -7,12 +7,11 @@
 #include <esp_check.h>
 #include <i2cdev.h>
 
-constexpr const char* tag = "   ***Sensor VL53L1X***   ";
+#include "i2c_bus.h"
+
+constexpr const char* tag = "sensor_vl53l1x";
 
 // VL53L1X Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
 constexpr uint8_t i2c_address = 0x29; // power-on default, shared with TSL2591
 constexpr auto full_distance_mm = static_cast<float>(CONFIG_VL53L1X_FULL_DISTANCE_MM);
 constexpr auto level_height_mm = static_cast<float>(CONFIG_VL53L1X_LEVEL_HEIGHT_MM);
@@ -46,31 +45,16 @@ Vl53l1x::~Vl53l1x() {
     }
 }
 
-std::optional<SensorValueRange> Vl53l1x::getValueRangeForType(SensorType type) const {
-    // Remaining level (%), published as whole percent
-    constexpr float level_min_percent = 0.0F;
-    constexpr float level_max_percent = 100.0F;
-    constexpr float level_abs_threshold = 1.0F;
+namespace {
+// Remaining level (%), published as whole percent
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::REMAINING_LEVEL,
+                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 1.0F}},
+};
+} // namespace
 
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    case SensorType::REMAINING_LEVEL:
-        return SensorValueRange{.min = level_min_percent,
-                                .max = level_max_percent,
-                                .abs_threshold = level_abs_threshold};
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Vl53l1x::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -153,7 +137,7 @@ esp_err_t Vl53l1x::configure() {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Vl53l1x::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Vl53l1x::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

@@ -1,12 +1,19 @@
 #ifndef SENSOR_H
 #define SENSOR_H
 
+#include <algorithm>
 #include <functional>
 #include <optional>
 #include <span>
 
 #include "common_types/common_types.h"
 #include "esp_err.h"
+
+// One type a sensor reports and its range (in the type's unit, see SensorValueRange).
+struct SensorTypeRange {
+    SensorType type;
+    SensorValueRange range;
+};
 
 class Sensor {
   public:
@@ -23,16 +30,26 @@ class Sensor {
     Sensor(Sensor&&) = delete;
     Sensor& operator=(Sensor&&) = delete;
 
-    virtual std::span<const SensorType> getTypes() const = 0;
+    // Types this sensor reports, with their ranges (may depend on the chip found by init()).
+    virtual std::span<const SensorTypeRange> getTypeRanges() const = 0;
     virtual const char* getModelName() const = 0;
-    // Returns valid measurement range in °C (Temperature), Pa (Pressure), or %RH (Humidity).
-    virtual std::optional<SensorValueRange> getValueRangeForType(SensorType type) const = 0;
     virtual esp_err_t init(int64_t read_interval_ms) = 0;
-    // Fills readings (°C, Pa, %RH) for every type in getTypes(); nullopt on failure.
-    virtual esp_err_t read(SensorReadings& readings, SensorReadings& compensations) = 0;
+    // Fills readings for every type in getTypeRanges(); nullopt on failure. compensations holds
+    // the previous cycle's readings.
+    virtual esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) = 0;
     // Event-driven sensors push changes through it. Default: polled only.
     // NOLINTNEXTLINE(performance-unnecessary-value-param): by value so overrides can move it.
     virtual void setReadingListener(ReadingListener /*listener*/) {}
+
+    bool providesType(SensorType type) const {
+        return getValueRangeForType(type).has_value();
+    }
+
+    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const {
+        const auto ranges = getTypeRanges();
+        const auto found = std::ranges::find(ranges, type, &SensorTypeRange::type);
+        return found == ranges.end() ? std::nullopt : std::optional(found->range);
+    }
 };
 
 #endif // SENSOR_H

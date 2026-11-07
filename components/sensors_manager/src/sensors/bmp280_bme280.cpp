@@ -4,62 +4,39 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor BMP280 BME280***   ";
+#include "i2c_bus.h"
 
-// BMP280 / BME280 Sensor Configuration (from Kconfig)
+constexpr const char* tag = "sensor_bmp280_bme280";
+
+// Pin-selectable I2C addresses, usual default first
 constexpr std::array<uint8_t, 2> i2c_addresses = {0x77, 0x76}; // SDO high, SDO to GND
-constexpr auto bmp280_sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto bmp280_scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto bmp280_i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
 
 Bmp280Bme280::~Bmp280Bme280() {
     if (initialized_) { bmp280_free_desc(&sensor_); }
 }
 
-std::optional<SensorValueRange> Bmp280Bme280::getValueRangeForType(SensorType type) const {
-    // Temperature (°C)
-    constexpr float bmp_280_temp_min_deg_celsius = -40.0F;
-    constexpr float bmp_280_temp_max_deg_celsius = 85.0F;
-    constexpr float bmp_280_temp_abs_threshold = 0.10F;
+namespace {
+// Temperature (°C), pressure (Pa), relative humidity (%RH)
+constexpr std::array bme280_type_ranges = {
+    SensorTypeRange{.type = SensorType::TEMPERATURE,
+                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
+    SensorTypeRange{.type = SensorType::PRESSURE,
+                    .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F}},
+    SensorTypeRange{.type = SensorType::RELATIVE_HUMIDITY,
+                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F}},
+};
+// BMP280: no humidity
+constexpr std::array bmp280_type_ranges = {
+    SensorTypeRange{.type = SensorType::TEMPERATURE,
+                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
+    SensorTypeRange{.type = SensorType::PRESSURE,
+                    .range = {.min = 30000.0F, .max = 110000.0F, .abs_threshold = 50.0F}},
+};
+} // namespace
 
-    // Pressure (Pa)
-    constexpr float bmp_280_press_min_pa = 30000.0F;
-    constexpr float bmp_280_press_max_pa = 110000.0F;
-    constexpr float bmp_280_press_abs_threshold = 50.0F;
-
-    // Relative Humidity (%RH)
-    constexpr float bmp_280_humi_min_percent = 0.0F;
-    constexpr float bmp_280_humi_max_percent = 100.0F;
-    constexpr float bmp_280_humi_abs_threshold = 0.50F;
-
-    switch (type) {
-    case SensorType::TEMPERATURE:
-        return SensorValueRange{.min = bmp_280_temp_min_deg_celsius,
-                                .max = bmp_280_temp_max_deg_celsius,
-                                .abs_threshold = bmp_280_temp_abs_threshold};
-    case SensorType::PRESSURE:
-        return SensorValueRange{.min = bmp_280_press_min_pa,
-                                .max = bmp_280_press_max_pa,
-                                .abs_threshold = bmp_280_press_abs_threshold};
-    case SensorType::RELATIVE_HUMIDITY:
-        if (is_bme280_) {
-            return SensorValueRange{.min = bmp_280_humi_min_percent,
-                                    .max = bmp_280_humi_max_percent,
-                                    .abs_threshold = bmp_280_humi_abs_threshold};
-        }
-        break;
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Bmp280Bme280::getTypeRanges() const {
+    return is_bme280_ ? std::span<const SensorTypeRange>(bme280_type_ranges)
+                      : std::span<const SensorTypeRange>(bmp280_type_ranges);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -103,7 +80,7 @@ esp_err_t Bmp280Bme280::initAt(uint8_t address) {
     ESP_RETURN_ON_ERROR(
         ret, tag, "initialization failed on bmp280_init_default_params: %s", esp_err_to_name(ret));
 
-    ret = bmp280_init_desc(&sensor_, address, bmp280_i2c_port, bmp280_sda_gpio, bmp280_scl_gpio);
+    ret = bmp280_init_desc(&sensor_, address, i2c_port, sda_gpio, scl_gpio);
     ESP_RETURN_ON_ERROR(
         ret, tag, "initialization failed on bmp280_init_desc: %s", esp_err_to_name(ret));
 
@@ -119,7 +96,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Bmp280Bme280::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Bmp280Bme280::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

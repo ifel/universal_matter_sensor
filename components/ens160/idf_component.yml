@@ -4,5 +4,5 @@ license: MIT
 dependencies:
   idf:
     version: '>=6.1.0'
-  esp-idf-lib/i2cdev: '*'
-  esp-idf-lib/esp_idf_lib_helpers: '*'
+  esp-idf-lib/i2cdev: '^2.1.2'
+  esp-idf-lib/esp_idf_lib_helpers: '^1.4.0'

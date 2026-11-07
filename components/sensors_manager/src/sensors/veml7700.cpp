@@ -5,19 +5,16 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor VEML7700***   ";
+#include "i2c_bus.h"
 
-// VEML7700 Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_veml7700";
 
-using step_t = struct {
+struct LadderStep {
     uint16_t gain, it, it_ms;
     float res;
 };
 
-static constexpr std::array<step_t, 9> ladder{{
+static constexpr std::array<LadderStep, 9> ladder{{
     {.gain = VEML7700_GAIN_DIV_8,
      .it = VEML7700_INTEGRATION_TIME_25MS,
      .it_ms = 25,
@@ -64,7 +61,7 @@ esp_err_t readAlsCounts(i2c_dev_t* dev, uint16_t* counts) {
     auto err = i2c_dev_read_reg(dev, als_result_register, &bytes, 2);
     I2C_DEV_GIVE_MUTEX(dev); // NOLINT(readability-identifier-length)
     if (err == ESP_OK) {
-        *counts = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8); // LSB first
+        *counts = static_cast<uint16_t>(bytes[0] | (bytes[1] << 8)); // LSB first
     }
     return err;
 }
@@ -74,33 +71,17 @@ Veml7700::~Veml7700() {
     if (initialized_) { veml7700_free_desc(&sensor_); }
 }
 
-std::optional<SensorValueRange> Veml7700::getValueRangeForType(SensorType type) const {
-    // Illuminance (Lux)
-    constexpr float illum_min_lux = 1.0F;
-    constexpr float illum_max_lux = 140'000.0F;
-    constexpr float illum_abs_threshold = 1.0F;
-    constexpr float illum_rel_threshold = 0.03F;
+namespace {
+// Illuminance (lx)
+constexpr std::array type_ranges = {
+    SensorTypeRange{
+        .type = SensorType::ILLUMINANCE,
+        .range = {.min = 1.0F, .max = 140'000.0F, .abs_threshold = 1.0F, .rel_threshold = 0.03F}},
+};
+} // namespace
 
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    case SensorType::ILLUMINANCE:
-        return SensorValueRange{.min = illum_min_lux,
-                                .max = illum_max_lux,
-                                .abs_threshold = illum_abs_threshold,
-                                .rel_threshold = illum_rel_threshold};
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Veml7700::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -145,7 +126,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Veml7700::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Veml7700::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
@@ -156,22 +137,22 @@ esp_err_t Veml7700::read(SensorReadings& readings, SensorReadings& /*compensatio
         uint16_t counts{};
         const auto ret = readAlsCounts(&sensor_, &counts);
         ESP_RETURN_ON_ERROR(ret, tag, "Could not read ALS counts %s", esp_err_to_name(ret));
-        if (counts > max_counts && ladderIdx_ > 0) {
-            ladderIdx_--;
+        if (counts > max_counts && ladder_idx_ > 0) {
+            ladder_idx_--;
             ESP_LOGD(
-                tag, "Counts %d too high, decreasing gain to ladder index %d", counts, ladderIdx_);
+                tag, "Counts %d too high, decreasing gain to ladder index %d", counts, ladder_idx_);
             ESP_RETURN_ON_ERROR(applyConfigRange(), tag, "read failed trying to change range");
             continue;
         }
-        if (counts <= min_counts && ladderIdx_ + 1U < ladder.size()) {
-            ladderIdx_++;
+        if (counts <= min_counts && ladder_idx_ + 1U < ladder.size()) {
+            ladder_idx_++;
             ESP_LOGD(
-                tag, "Counts %d too low, increasing gain to ladder index %d", counts, ladderIdx_);
+                tag, "Counts %d too low, increasing gain to ladder index %d", counts, ladder_idx_);
             ESP_RETURN_ON_ERROR(applyConfigRange(), tag, "read failed trying to change range");
             continue;
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-        const auto& step = ladder[ladderIdx_];
+        const auto& step = ladder[ladder_idx_];
         float lux = static_cast<float>(counts) * step.res;
         if (isLowGain(step.gain) && lux > correction_min_lux) { lux = correctHighLux(lux); }
         at<SensorType::ILLUMINANCE>(readings) = lux;
@@ -184,12 +165,12 @@ esp_err_t Veml7700::read(SensorReadings& readings, SensorReadings& /*compensatio
 
 esp_err_t Veml7700::applyConfigRange() {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    config_.gain = ladder[ladderIdx_].gain;
+    config_.gain = ladder[ladder_idx_].gain;
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    config_.integration_time = ladder[ladderIdx_].it;
+    config_.integration_time = ladder[ladder_idx_].it;
     const auto ret = veml7700_set_config(&sensor_, &config_);
     ESP_RETURN_ON_ERROR(ret, tag, "Could not apply config range: %s", esp_err_to_name(ret));
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    vTaskDelay(pdMS_TO_TICKS(ladder[ladderIdx_].it_ms + 120)); // one fresh conversion
+    vTaskDelay(pdMS_TO_TICKS(ladder[ladder_idx_].it_ms + 120)); // one fresh conversion
     return ESP_OK;
 }

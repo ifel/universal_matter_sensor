@@ -5,12 +5,9 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor MAX17048***   ";
+#include "i2c_bus.h"
 
-// MAX17048 Sensor Configuration (from Kconfig); fixed address 0x36
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_max17048";
 
 namespace {
 // VERSION register: 0x001x on MAX17048/49 (the driver does not check it).
@@ -52,44 +49,23 @@ Max17048::~Max17048() {
     if (initialized_) { max1704x_free_desc(&sensor_); }
 }
 
-std::optional<SensorValueRange> Max17048::getValueRangeForType(SensorType type) const {
-    // Battery (%), Matter reports half-percent steps
-    constexpr float percent_min = 0.0F;
-    constexpr float percent_max = 100.0F;
-    constexpr float percent_abs_threshold = 1.0F;
+namespace {
+// Battery (%, Matter reports half-percent steps), voltage (V, VCELL full scale 5.12 V), charge
+// state (BatteryChargeState)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::BATTERY_PERCENT,
+                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 1.0F}},
+    SensorTypeRange{.type = SensorType::BATTERY_VOLTAGE,
+                    .range = {.min = 0.0F, .max = 5.12F, .abs_threshold = 0.01F}},
+    SensorTypeRange{.type = SensorType::BATTERY_CHARGE_STATE,
+                    .range = {.min = 0.0F,
+                              .max = static_cast<float>(BatteryChargeState::NOT_CHARGING),
+                              .abs_threshold = 1.0F}},
+};
+} // namespace
 
-    // Battery voltage (V); VCELL full scale 5.12 V
-    constexpr float voltage_min = 0.0F;
-    constexpr float voltage_max = 5.12F;
-    constexpr float voltage_abs_threshold = 0.01F;
-
-    // Charge state (BatteryChargeState)
-    constexpr float state_min = 0.0F;
-    constexpr auto state_max = static_cast<float>(BatteryChargeState::NOT_CHARGING);
-    constexpr float state_abs_threshold = 1.0F;
-
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    case SensorType::BATTERY_PERCENT:
-        return SensorValueRange{
-            .min = percent_min, .max = percent_max, .abs_threshold = percent_abs_threshold};
-    case SensorType::BATTERY_VOLTAGE:
-        return SensorValueRange{
-            .min = voltage_min, .max = voltage_max, .abs_threshold = voltage_abs_threshold};
-    case SensorType::BATTERY_CHARGE_STATE:
-        return SensorValueRange{
-            .min = state_min, .max = state_max, .abs_threshold = state_abs_threshold};
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Max17048::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -131,7 +107,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Max17048::read(SensorReadings& readings, SensorReadings& compensations) {
+esp_err_t Max17048::read(SensorReadings& readings, const SensorReadings& compensations) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

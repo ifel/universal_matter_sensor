@@ -6,7 +6,7 @@
 
 #    include "ld2410s.h"
 
-constexpr const char* tag = "   ***Sensor LD2410S***   ";
+constexpr const char* tag = "sensor_ld2410s";
 
 // LD2410S Sensor Configuration (from Kconfig); ESP TX goes to the module's RX and vice versa.
 constexpr auto uart_port = static_cast<uart_port_t>(CONFIG_LD2410S_UART_PORT);
@@ -35,30 +35,16 @@ Ld2410s::~Ld2410s() {
     }
 }
 
-std::optional<SensorValueRange> Ld2410s::getValueRangeForType(SensorType type) const {
-    // Occupancy (0 = unoccupied, 1 = occupied)
-    constexpr float occupancy_min = 0.0F;
-    constexpr float occupancy_max = 1.0F;
-    constexpr float occupancy_abs_threshold = 1.0F;
+namespace {
+// Occupancy (0 = unoccupied, 1 = occupied)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::OCCUPANCY,
+                    .range = {.min = 0.0F, .max = 1.0F, .abs_threshold = 1.0F}},
+};
+} // namespace
 
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-        return std::nullopt;
-    case SensorType::OCCUPANCY:
-        return SensorValueRange{
-            .min = occupancy_min, .max = occupancy_max, .abs_threshold = occupancy_abs_threshold};
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Ld2410s::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -108,7 +94,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Ld2410s::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Ld2410s::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

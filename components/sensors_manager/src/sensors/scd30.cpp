@@ -7,12 +7,9 @@
 #include <esp_check.h>
 #include <esp_timer.h>
 
-constexpr const char* tag = "   ***Sensor SCD30***   ";
+#include "i2c_bus.h"
 
-// SHT4X Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_scd30";
 
 namespace {
 // Measurement interval range accepted by the SCD30 (s).
@@ -43,56 +40,26 @@ Scd30::~Scd30() {
     }
 }
 
-std::optional<SensorValueRange> Scd30::getValueRangeForType(SensorType type) const {
-    // Temperature (°C) from embedded SHT31
-    constexpr float temp_min_deg_celsius = -40.0F;
-    constexpr float temp_max_deg_celsius = 70.0F;
-    constexpr float temp_abs_threshold = 0.20F;
+namespace {
+// Temperature (°C) and humidity (%RH) from the embedded SHT31, CO2 (ppm), air quality
+// (AirQualityLevel, from CO2)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::TEMPERATURE,
+                    .range = {.min = -40.0F, .max = 70.0F, .abs_threshold = 0.20F}},
+    SensorTypeRange{.type = SensorType::RELATIVE_HUMIDITY,
+                    .range = {.min = 0.0F, .max = 100.0F, .abs_threshold = 0.50F}},
+    SensorTypeRange{
+        .type = SensorType::CARBON_DIOXIDE_CONCENTRATION,
+        .range = {.min = 400.0F, .max = 10000.0F, .abs_threshold = 20.0F, .rel_threshold = 0.02F}},
+    SensorTypeRange{.type = SensorType::AIR_QUALITY,
+                    .range = {.min = static_cast<float>(AirQualityLevel::GOOD),
+                              .max = static_cast<float>(AirQualityLevel::EXTREMELY_POOR),
+                              .abs_threshold = 1.0F}},
+};
+} // namespace
 
-    // Relative Humidity (%RH)
-    constexpr float humi_min_percent = 0.0F;
-    constexpr float humi_max_percent = 100.0F;
-    constexpr float humi_abs_threshold = 0.50F;
-
-    // CO2 (ppm)
-    constexpr float co2_min_percent = 400.0F;
-    constexpr float co2_max_percent = 10'000.0F;
-    constexpr float co2_abs_threshold = 20.0F;
-    constexpr float co2_rel_threshold = 0.02F;
-
-    // Air quality derived from CO2 (AirQualityLevel)
-    constexpr auto aq_min_level = static_cast<float>(AirQualityLevel::GOOD);
-    constexpr auto aq_max_level = static_cast<float>(AirQualityLevel::EXTREMELY_POOR);
-    constexpr float aq_abs_threshold = 1.0F;
-
-    switch (type) {
-    case SensorType::TEMPERATURE:
-        return SensorValueRange{.min = temp_min_deg_celsius,
-                                .max = temp_max_deg_celsius,
-                                .abs_threshold = temp_abs_threshold};
-    case SensorType::PRESSURE:
-        return std::nullopt;
-    case SensorType::RELATIVE_HUMIDITY:
-        return SensorValueRange{
-            .min = humi_min_percent, .max = humi_max_percent, .abs_threshold = humi_abs_threshold};
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-        return SensorValueRange{.min = co2_min_percent,
-                                .max = co2_max_percent,
-                                .abs_threshold = co2_abs_threshold,
-                                .rel_threshold = co2_rel_threshold};
-    case SensorType::AIR_QUALITY:
-        return SensorValueRange{
-            .min = aq_min_level, .max = aq_max_level, .abs_threshold = aq_abs_threshold};
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-        return std::nullopt;
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Scd30::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -150,7 +117,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Scd30::read(SensorReadings& readings, SensorReadings& compensations) {
+esp_err_t Scd30::read(SensorReadings& readings, const SensorReadings& compensations) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

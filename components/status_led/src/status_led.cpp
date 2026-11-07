@@ -5,7 +5,7 @@
 #include <sdkconfig.h>
 
 namespace {
-constexpr const char* tag = "   ***status_led***   ";
+constexpr const char* tag = "status_led";
 constexpr uint64_t k_slow_blink_us = 1000ULL * 1000ULL;
 constexpr uint64_t k_fast_blink_us = 200ULL * 1000ULL;
 constexpr uint64_t k_ready_on_us = 3ULL * 60ULL * 1000ULL * 1000ULL; // solid on after boot

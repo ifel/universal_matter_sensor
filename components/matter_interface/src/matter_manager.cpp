@@ -58,7 +58,7 @@ constexpr float matter_battery_voltage_scale = 1000.0F; // V -> mV
 constexpr int64_t report_max_interval_us =
     static_cast<int64_t>(CONFIG_MATTER_REPORT_MAX_INTERVAL_S) * 1'000'000LL;
 
-constexpr const char* tag = "   ***matter_interface***   ";
+constexpr const char* tag = "matter_manager";
 
 namespace {
 // Set by MatterManager::init(); the Matter callbacks carry no context we can rely on.
@@ -94,189 +94,48 @@ void setPowerSourceEndpointList() {
     }
 }
 
-/**
- * @brief Handle Matter device events.
- *
- * This callback is invoked to process various events related to the Matter stack.
- *
- * @param[in] event The Matter device event structure.
- * @param[in] arg   Additional argument provided by the caller.
- */
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+// Matter device events: acts on a few and logs the notable ones; the rest are logged by number
+// (see chip::DeviceLayer::DeviceEventType) to keep their names out of flash.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): the log macros inflate it.
 void matterEventCallback(const ChipDeviceEvent* event, intptr_t /*arg*/) {
+    namespace DeviceEventType = chip::DeviceLayer::DeviceEventType;
     switch (event->Type) {
-    // Signals a change in connectivity of the device's Wi-Fi station interface.
-    case chip::DeviceLayer::DeviceEventType::kWiFiConnectivityChange:
+    case DeviceEventType::kWiFiConnectivityChange:
         ESP_LOGI(tag, "Wi-Fi connectivity change");
         break;
-
-    // Signals a change in connectivity of the device's Thread interface.
-    case chip::DeviceLayer::DeviceEventType::kThreadConnectivityChange:
+    case DeviceEventType::kThreadConnectivityChange:
         ESP_LOGI(tag, "Thread connectivity change");
         break;
-
-    // Signals a change in the device's ability to communicate via the internet.
-    case chip::DeviceLayer::DeviceEventType::kInternetConnectivityChange:
-        ESP_LOGI(tag, "Internet connectivity change");
-        break;
-
-    // Signals a change in the device's ability to communicate with a chip-enabled service.
-    case chip::DeviceLayer::DeviceEventType::kServiceConnectivityChange:
-        ESP_LOGI(tag, "Service connectivity change");
-        break;
-
-    // Signals a change to the device's service provisioning state.
-    case chip::DeviceLayer::DeviceEventType::kServiceProvisioningChange:
-        ESP_LOGI(tag, "Service provisioning change");
-        break;
-
-    // Signals a change to the device's real-time clock synchronization state.
-    case chip::DeviceLayer::DeviceEventType::kTimeSyncChange:
-        ESP_LOGI(tag, "Time synchronization change");
-        break;
-
-    // Signals that an external entity has established a new CHIPoBLE connection with the device.
-    case chip::DeviceLayer::DeviceEventType::kCHIPoBLEConnectionEstablished:
-        ESP_LOGI(tag, "BLE connection established");
-        break;
-
-    // Signals that an external entity has closed an existing CHIPoBLE connection with the device.
-    case chip::DeviceLayer::DeviceEventType::kCHIPoBLEConnectionClosed:
-        ESP_LOGI(tag, "BLE connection closed");
-        break;
-
-    // Request to close all BLE connections when concurrent connections are not supported.
-    case chip::DeviceLayer::DeviceEventType::kCloseAllBleConnections:
-        ESP_LOGI(tag, "Close all BLE connections requested");
-        break;
-
-    // Indicates that the Wi-Fi device is available for connection.
-    case chip::DeviceLayer::DeviceEventType::kWiFiDeviceAvailable:
-        ESP_LOGI(tag, "Wi-Fi device is available");
-        break;
-
-    // Indicates that the operational network has started.
-    case chip::DeviceLayer::DeviceEventType::kOperationalNetworkStarted:
-        ESP_LOGI(tag, "Operational network started");
-        break;
-
-    // Signals a state change in the Thread stack.
-    case chip::DeviceLayer::DeviceEventType::kThreadStateChange:
-        ESP_LOGI(tag, "Thread state change");
-        break;
-
-    // Indicates a change in the state of the Thread network interface.
-    case chip::DeviceLayer::DeviceEventType::kThreadInterfaceStateChange:
-        ESP_LOGI(tag, "Thread interface state change");
-        break;
-
-    // Indicates a change in the CHIPoBLE advertising state.
-    case chip::DeviceLayer::DeviceEventType::kCHIPoBLEAdvertisingChange:
-        ESP_LOGI(tag, "CHIPoBLE advertising state change");
-        break;
-
-    // Indicates that an IP address (IPv4 or IPv6) has changed for the interface.
-    case chip::DeviceLayer::DeviceEventType::kInterfaceIpAddressChanged:
+    case DeviceEventType::kInterfaceIpAddressChanged:
         ESP_LOGI(tag, "Interface IP address changed");
         break;
-
-    // Signals that commissioning has completed via the general commissioning cluster command.
-    case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
-        ESP_LOGI(tag, "Commissioning complete");
-        notifyCommissioningWindow(false);
-        break;
-
-    // Indicates that the fail-safe timer expired before the CommissioningComplete command was
-    // invoked.
-    case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
-        ESP_LOGI(tag, "Commissioning failed, fail-safe timer expired");
-        break;
-
-    // Indicates that the operational network is enabled.
-    case chip::DeviceLayer::DeviceEventType::kOperationalNetworkEnabled:
-        ESP_LOGI(tag, "Operational network enabled");
-        break;
-
-    // Signals that DNS-SD has been initialized and is ready to operate.
-    case chip::DeviceLayer::DeviceEventType::kDnssdInitialized:
-        ESP_LOGI(tag, "DNS-SD initialized");
-        break;
-
-    // Indicates that the DNS-SD backend was restarted and services must be published again.
-    case chip::DeviceLayer::DeviceEventType::kDnssdRestartNeeded:
-        ESP_LOGI(tag, "DNS-SD restart needed");
-        break;
-
-    // Indicates that bindings were updated via cluster.
-    case chip::DeviceLayer::DeviceEventType::kBindingsChangedViaCluster:
-        ESP_LOGI(tag, "Bindings updated via cluster");
-        break;
-
-    // Indicates a change in the OTA engine state.
-    case chip::DeviceLayer::DeviceEventType::kOtaStateChanged:
-        ESP_LOGI(tag, "OTA state changed");
-        break;
-
-    // Indicates that server initialization has completed, and the node is ready for connections.
-    case chip::DeviceLayer::DeviceEventType::kServerReady:
+    case DeviceEventType::kServerReady:
         ESP_LOGI(tag, "Server is ready");
         setPowerSourceEndpointList();
         break;
-
-    // Signals that BLE has been deinitialized.
-    case chip::DeviceLayer::DeviceEventType::kBLEDeinitialized:
-        ESP_LOGI(tag, "BLE deinitialized");
+    case DeviceEventType::kCommissioningComplete:
+        ESP_LOGI(tag, "Commissioning complete");
+        notifyCommissioningWindow(false);
         break;
-
-    // Signals that a commissioning session has started.
-    case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStarted:
-        ESP_LOGI(tag, "Commissioning session started");
+    case DeviceEventType::kFailSafeTimerExpired:
+        ESP_LOGW(tag, "Commissioning failed, fail-safe timer expired");
         break;
-
-    // Signals that a commissioning session has stopped.
-    case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStopped:
-        ESP_LOGI(tag, "Commissioning session stopped");
-        break;
-
-    // Indicates that the commissioning window is now open.
-    case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
+    case DeviceEventType::kCommissioningWindowOpened:
         ESP_LOGI(tag, "Commissioning window opened");
         notifyCommissioningWindow(true);
         break;
-
-    // Indicates that the commissioning window is now closed.
-    case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
+    case DeviceEventType::kCommissioningWindowClosed:
         ESP_LOGI(tag, "Commissioning window closed");
         notifyCommissioningWindow(false);
         break;
-
-    // Indicates that a fabric is about to be removed.
-    case chip::DeviceLayer::DeviceEventType::kFabricWillBeRemoved:
-        ESP_LOGI(tag, "Fabric will be removed");
+    case DeviceEventType::kFabricRemoved:
+        ESP_LOGI(tag, "Fabric removed");
         break;
-
-    // Indicates that a fabric has been removed.
-    case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
-        ESP_LOGI(tag, "Fabric removed successfully");
+    case DeviceEventType::kOtaStateChanged:
+        ESP_LOGI(tag, "OTA state changed");
         break;
-
-    // Indicates that a fabric in the Fabric Table has been committed to storage.
-    case chip::DeviceLayer::DeviceEventType::kFabricCommitted:
-        ESP_LOGI(tag, "Fabric committed to storage");
-        break;
-
-    // Signals that operational credentials have been updated.
-    case chip::DeviceLayer::DeviceEventType::kFabricUpdated:
-        ESP_LOGI(tag, "Fabric updated");
-        break;
-
-    // Signals that secure session is established.
-    case chip::DeviceLayer::DeviceEventType::kSecureSessionEstablished:
-        ESP_LOGI(tag, "Secure session is established");
-        break;
-
     default:
-        ESP_LOGI(tag, "Unhandled Matter event type: %d", event->Type);
+        ESP_LOGD(tag, "Matter event 0x%04x", static_cast<unsigned int>(event->Type));
         break;
     }
 }
@@ -306,9 +165,9 @@ esp_err_t identificationCallback(esp_matter::identification::callback_type_t con
         tag,
         "Identification Callback Invoked: type=%d, endpoint_id=%u, effect_id=%u, effect_variant=%u",
         type,
-        (unsigned int)endpoint_id,
-        (unsigned int)effect_id,
-        (unsigned int)effect_variant);
+        static_cast<unsigned int>(endpoint_id),
+        static_cast<unsigned int>(effect_id),
+        static_cast<unsigned int>(effect_variant));
     if (type == esp_matter::identification::START || type == esp_matter::identification::EFFECT) {
         notifyIdentify(true);
     } else if (type == esp_matter::identification::STOP) {
@@ -342,9 +201,9 @@ esp_err_t attributeUpdateCallback(const esp_matter::attribute::callback_type_t t
     ESP_LOGI(tag,
              "Attribute update: type=%d, endpoint_id=%u, cluster_id=%u, attribute_id=%u",
              type,
-             (unsigned int)endpoint_id,
-             (unsigned int)cluster_id,
-             (unsigned int)attribute_id);
+             static_cast<unsigned int>(endpoint_id),
+             static_cast<unsigned int>(cluster_id),
+             static_cast<unsigned int>(attribute_id));
     return ESP_OK;
 }
 
@@ -1287,90 +1146,82 @@ esp_err_t MatterManager::updateValues(const SensorReadings& values) {
     esp_matter::lock::ScopedChipStackLock lock(portMAX_DELAY);
 
     auto ret = ESP_OK;
-    auto result =
-        updateValue<TemperatureMeasurementCluster>(at<SensorType::TEMPERATURE>(values),
-                                                   at<SensorType::TEMPERATURE>(measurements_),
-                                                   matterScaleTemp,
-                                                   "temperature",
-                                                   TemperatureMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    // Any failed update makes the whole call report ESP_ERR_NOT_FINISHED.
+    auto check = [&ret](esp_err_t result) {
+        if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    };
 
-    result = updateValue<PressureMeasurementCluster>(at<SensorType::PRESSURE>(values),
-                                                     at<SensorType::PRESSURE>(measurements_),
-                                                     matterScalePressureToKpa,
-                                                     "pressure",
-                                                     PressureMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateValue<TemperatureMeasurementCluster>(at<SensorType::TEMPERATURE>(values),
+                                                     at<SensorType::TEMPERATURE>(measurements_),
+                                                     matterScaleTemp,
+                                                     "temperature",
+                                                     TemperatureMeasurement::Id));
 
-    result = updateValue<RelativeHumidityMeasurementCluster>(
+    check(updateValue<PressureMeasurementCluster>(at<SensorType::PRESSURE>(values),
+                                                  at<SensorType::PRESSURE>(measurements_),
+                                                  matterScalePressureToKpa,
+                                                  "pressure",
+                                                  PressureMeasurement::Id));
+
+    check(updateValue<RelativeHumidityMeasurementCluster>(
         at<SensorType::RELATIVE_HUMIDITY>(values),
         at<SensorType::RELATIVE_HUMIDITY>(measurements_),
         matterScaleRelativeHumidity,
         "relative humidity",
-        RelativeHumidityMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+        RelativeHumidityMeasurement::Id));
 
-    result = updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
+    check(updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
         at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(values),
         at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(measurements_),
         matterScaleCarbonDioxideConcentration,
         "carbon dioxide (CO2) concentration",
-        CarbonDioxideConcentrationMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+        CarbonDioxideConcentrationMeasurement::Id));
 
-    result = updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
+    check(updateValue<ConcentrationMeasurement::ConcentrationMeasurementCluster>(
         at<SensorType::TVOC_CONCENTRATION>(values),
         at<SensorType::TVOC_CONCENTRATION>(measurements_),
         matterScaleTvocConcentration,
         "TVOC concentration",
-        TotalVolatileOrganicCompoundsConcentrationMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+        TotalVolatileOrganicCompoundsConcentrationMeasurement::Id));
 
-    result = updateAirQuality(at<SensorType::AIR_QUALITY>(measurements_).endpoint_id,
-                              at<SensorType::AIR_QUALITY>(values));
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateAirQuality(at<SensorType::AIR_QUALITY>(measurements_).endpoint_id,
+                           at<SensorType::AIR_QUALITY>(values)));
 
-    result = updateValue<IlluminanceMeasurementCluster>(at<SensorType::ILLUMINANCE>(values),
-                                                        at<SensorType::ILLUMINANCE>(measurements_),
-                                                        matterScaleIlluminance,
-                                                        "illuminance",
-                                                        IlluminanceMeasurement::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateValue<IlluminanceMeasurementCluster>(at<SensorType::ILLUMINANCE>(values),
+                                                     at<SensorType::ILLUMINANCE>(measurements_),
+                                                     matterScaleIlluminance,
+                                                     "illuminance",
+                                                     IlluminanceMeasurement::Id));
 
-    result = updateRemainingLevel(at<SensorType::REMAINING_LEVEL>(measurements_).endpoint_id,
-                                  at<SensorType::REMAINING_LEVEL>(values));
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateRemainingLevel(at<SensorType::REMAINING_LEVEL>(measurements_).endpoint_id,
+                               at<SensorType::REMAINING_LEVEL>(values)));
 
     // OCCUPANCY is pushed (updateValue(type, value)) only: a polled value could be older than a
     // pushed transition.
 
-    result = updateAttribute(at<SensorType::BATTERY_PERCENT>(values),
-                             at<SensorType::BATTERY_PERCENT>(measurements_),
-                             toBatteryPercentAttr,
-                             "battery percent",
-                             PowerSource::Id,
-                             PowerSource::Attributes::BatPercentRemaining::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateAttribute(at<SensorType::BATTERY_PERCENT>(values),
+                          at<SensorType::BATTERY_PERCENT>(measurements_),
+                          toBatteryPercentAttr,
+                          "battery percent",
+                          PowerSource::Id,
+                          PowerSource::Attributes::BatPercentRemaining::Id));
 
-    result = updateBatteryChargeLevel(at<SensorType::BATTERY_PERCENT>(measurements_).endpoint_id,
-                                      at<SensorType::BATTERY_PERCENT>(values));
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateBatteryChargeLevel(at<SensorType::BATTERY_PERCENT>(measurements_).endpoint_id,
+                                   at<SensorType::BATTERY_PERCENT>(values)));
 
-    result = updateAttribute(at<SensorType::BATTERY_VOLTAGE>(values),
-                             at<SensorType::BATTERY_VOLTAGE>(measurements_),
-                             toBatteryVoltageAttr,
-                             "battery voltage",
-                             PowerSource::Id,
-                             PowerSource::Attributes::BatVoltage::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateAttribute(at<SensorType::BATTERY_VOLTAGE>(values),
+                          at<SensorType::BATTERY_VOLTAGE>(measurements_),
+                          toBatteryVoltageAttr,
+                          "battery voltage",
+                          PowerSource::Id,
+                          PowerSource::Attributes::BatVoltage::Id));
 
-    result = updateAttribute(at<SensorType::BATTERY_CHARGE_STATE>(values),
-                             at<SensorType::BATTERY_CHARGE_STATE>(measurements_),
-                             toBatteryChargeStateAttr,
-                             "battery charge state",
-                             PowerSource::Id,
-                             PowerSource::Attributes::BatChargeState::Id);
-    if (result != ESP_OK) { ret = ESP_ERR_NOT_FINISHED; }
+    check(updateAttribute(at<SensorType::BATTERY_CHARGE_STATE>(values),
+                          at<SensorType::BATTERY_CHARGE_STATE>(measurements_),
+                          toBatteryChargeStateAttr,
+                          "battery charge state",
+                          PowerSource::Id,
+                          PowerSource::Attributes::BatChargeState::Id));
 
     return ret;
 }

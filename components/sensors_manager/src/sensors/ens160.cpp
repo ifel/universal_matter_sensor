@@ -4,12 +4,11 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor ENS160***   ";
+#include "i2c_bus.h"
 
-// ENS160 Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_ens160";
+
+// Pin-selectable I2C addresses, usual default first
 constexpr std::array<uint8_t, 2> i2c_addresses = {0x53, 0x52}; // ADDR high, ADDR to GND
 
 namespace {
@@ -39,57 +38,28 @@ Ens160::~Ens160() {
     }
 }
 
-std::optional<SensorValueRange> Ens160::getValueRangeForType(SensorType type) const {
-    // Equivalent CO2 (ppm)
-    constexpr auto eco2_min_ppm = static_cast<float>(ENS160_ECO2_MIN);
-    constexpr auto eco2_max_ppm = static_cast<float>(ENS160_ECO2_MAX);
-    constexpr float eco2_abs_threshold = 20.0F;
-    constexpr float eco2_rel_threshold = 0.02F;
+namespace {
+// Equivalent CO2 (ppm), TVOC (ppb), air quality (AirQualityLevel, from the UBA index)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::CARBON_DIOXIDE_CONCENTRATION,
+                    .range = {.min = static_cast<float>(ENS160_ECO2_MIN),
+                              .max = static_cast<float>(ENS160_ECO2_MAX),
+                              .abs_threshold = 20.0F,
+                              .rel_threshold = 0.02F}},
+    SensorTypeRange{.type = SensorType::TVOC_CONCENTRATION,
+                    .range = {.min = static_cast<float>(ENS160_TVOC_MIN),
+                              .max = static_cast<float>(ENS160_TVOC_MAX),
+                              .abs_threshold = 10.0F,
+                              .rel_threshold = 0.05F}},
+    SensorTypeRange{.type = SensorType::AIR_QUALITY,
+                    .range = {.min = static_cast<float>(AirQualityLevel::GOOD),
+                              .max = static_cast<float>(AirQualityLevel::VERY_POOR),
+                              .abs_threshold = 1.0F}},
+};
+} // namespace
 
-    // TVOC (ppb)
-    constexpr auto tvoc_min_ppb = static_cast<float>(ENS160_TVOC_MIN);
-    constexpr auto tvoc_max_ppb = static_cast<float>(ENS160_TVOC_MAX);
-    constexpr float tvoc_abs_threshold = 10.0F;
-    constexpr float tvoc_rel_threshold = 0.05F;
-
-    // Air quality from UBA index (AirQualityLevel)
-    constexpr auto aq_min_level = static_cast<float>(AirQualityLevel::GOOD);
-    constexpr auto aq_max_level = static_cast<float>(AirQualityLevel::VERY_POOR);
-    constexpr float aq_abs_threshold = 1.0F;
-
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::ILLUMINANCE:
-        return std::nullopt;
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-        return SensorValueRange{
-            .min = eco2_min_ppm,
-            .max = eco2_max_ppm,
-            .abs_threshold = eco2_abs_threshold,
-            .rel_threshold = eco2_rel_threshold,
-        };
-    case SensorType::TVOC_CONCENTRATION:
-        return SensorValueRange{
-            .min = tvoc_min_ppb,
-            .max = tvoc_max_ppb,
-            .abs_threshold = tvoc_abs_threshold,
-            .rel_threshold = tvoc_rel_threshold,
-        };
-    case SensorType::AIR_QUALITY:
-        return SensorValueRange{
-            .min = aq_min_level,
-            .max = aq_max_level,
-            .abs_threshold = aq_abs_threshold,
-        };
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Ens160::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -142,7 +112,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Ens160::read(SensorReadings& readings, SensorReadings& compensations) {
+esp_err_t Ens160::read(SensorReadings& readings, const SensorReadings& compensations) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

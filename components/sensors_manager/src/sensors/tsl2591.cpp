@@ -6,19 +6,16 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor TSL2591***   ";
+#include "i2c_bus.h"
 
-// TSL2591 Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_tsl2591";
 
 // Illuminance (Lux)
 constexpr float illum_min_lux = 1.0F;
 constexpr float illum_max_lux = 88'000.0F;
 
 namespace {
-using step_t = struct {
+struct LadderStep {
     tsl2591_gain_t gain;
     tsl2591_integration_time_t it;
     uint16_t it_ms;
@@ -26,7 +23,7 @@ using step_t = struct {
 };
 
 // Least to most sensitive; the driver has no auto-gain.
-constexpr std::array<step_t, 6> ladder{{
+constexpr std::array<LadderStep, 6> ladder{{
     {.gain = TSL2591_GAIN_LOW, .it = TSL2591_INTEGRATION_100MS, .it_ms = 100, .gain_factor = 1.0F},
     {.gain = TSL2591_GAIN_MEDIUM,
      .it = TSL2591_INTEGRATION_100MS,
@@ -51,11 +48,11 @@ constexpr std::array<step_t, 6> ladder{{
 }};
 
 // Full-scale ADC count: 37888 at 100 ms, 65535 for longer integration (datasheet).
-constexpr float maxCounts(const step_t& step) {
+constexpr float maxCounts(const LadderStep& step) {
     return step.it_ms == 100 ? 37888.0F : 65535.0F;
 }
 
-constexpr float sensitivity(const step_t& step) {
+constexpr float sensitivity(const LadderStep& step) {
     return step.gain_factor * static_cast<float>(step.it_ms);
 }
 
@@ -83,30 +80,19 @@ Tsl2591::~Tsl2591() {
     }
 }
 
-std::optional<SensorValueRange> Tsl2591::getValueRangeForType(SensorType type) const {
-    constexpr float illum_abs_threshold = 1.0F;
-    constexpr float illum_rel_threshold = 0.03F;
+namespace {
+// Illuminance (lx)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::ILLUMINANCE,
+                    .range = {.min = illum_min_lux,
+                              .max = illum_max_lux,
+                              .abs_threshold = 1.0F,
+                              .rel_threshold = 0.03F}},
+};
+} // namespace
 
-    switch (type) {
-    case SensorType::TEMPERATURE:
-    case SensorType::PRESSURE:
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    case SensorType::ILLUMINANCE:
-        return SensorValueRange{.min = illum_min_lux,
-                                .max = illum_max_lux,
-                                .abs_threshold = illum_abs_threshold,
-                                .rel_threshold = illum_rel_threshold};
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Tsl2591::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -157,7 +143,7 @@ cleanup:
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Tsl2591::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Tsl2591::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
@@ -171,23 +157,23 @@ esp_err_t Tsl2591::read(SensorReadings& readings, SensorReadings& /*compensation
         ESP_RETURN_ON_ERROR(ret, tag, "Could not read channel data: %s", esp_err_to_name(ret));
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-        const auto& step = ladder[ladderIdx_];
+        const auto& step = ladder[ladder_idx_];
         const auto counts = static_cast<float>(full_spectrum);
         const bool saturated = counts > saturation_fraction * maxCounts(step) ||
                                static_cast<float>(infrared) > saturation_fraction * maxCounts(step);
-        if (saturated && ladderIdx_ > 0) {
-            ladderIdx_--;
-            ESP_LOGD(tag, "Counts %u saturated, ladder index %u", full_spectrum, ladderIdx_);
+        if (saturated && ladder_idx_ > 0) {
+            ladder_idx_--;
+            ESP_LOGD(tag, "Counts %u saturated, ladder index %u", full_spectrum, ladder_idx_);
             ESP_RETURN_ON_ERROR(applyLadderStep(), tag, "read failed trying to change range");
             continue;
         }
-        if (!saturated && ladderIdx_ + 1U < ladder.size()) {
+        if (!saturated && ladder_idx_ + 1U < ladder.size()) {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-            const auto& next = ladder[ladderIdx_ + 1U];
+            const auto& next = ladder[ladder_idx_ + 1U];
             if (counts * sensitivity(next) / sensitivity(step) <
                 target_fraction * maxCounts(next)) {
-                ladderIdx_++;
-                ESP_LOGD(tag, "Counts %u too low, ladder index %u", full_spectrum, ladderIdx_);
+                ladder_idx_++;
+                ESP_LOGD(tag, "Counts %u too low, ladder index %u", full_spectrum, ladder_idx_);
                 ESP_RETURN_ON_ERROR(applyLadderStep(), tag, "read failed trying to change range");
                 continue;
             }
@@ -215,7 +201,7 @@ esp_err_t Tsl2591::read(SensorReadings& readings, SensorReadings& /*compensation
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 esp_err_t Tsl2591::applyLadderStep() {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    const auto& step = ladder[ladderIdx_];
+    const auto& step = ladder[ladder_idx_];
     auto ret = tsl2591_set_gain(&sensor_, step.gain);
     ESP_RETURN_ON_ERROR(ret, tag, "Could not set gain: %s", esp_err_to_name(ret));
     ret = tsl2591_set_integration_time(&sensor_, step.it);

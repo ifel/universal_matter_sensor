@@ -19,19 +19,12 @@ class Sht4x : public Sensor {
     Sht4x(Sht4x&&) = delete;
     Sht4x& operator=(Sht4x&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_types = {
-            SensorType::TEMPERATURE,
-            SensorType::RELATIVE_HUMIDITY,
-        };
-        return std::span<const SensorType>(k_types);
-    }
     const char* getModelName() const override {
         return "SHT4X";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
 
   private:
     sht4x_t sensor_{};

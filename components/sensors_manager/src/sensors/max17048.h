@@ -20,20 +20,12 @@ class Max17048 : public Sensor {
     Max17048(Max17048&&) = delete;
     Max17048& operator=(Max17048&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_types = {
-            SensorType::BATTERY_PERCENT,
-            SensorType::BATTERY_VOLTAGE,
-            SensorType::BATTERY_CHARGE_STATE,
-        };
-        return std::span<const SensorType>(k_types);
-    }
     const char* getModelName() const override {
         return "MAX17048";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
 
   private:
     esp_err_t updateRcomp(const SensorReadings& compensations);

@@ -19,7 +19,7 @@
 #endif
 
 // Logging tag
-constexpr const char* tag = "   ***app_main***   ";
+constexpr const char* tag = "app_main";
 
 // Task Configuration
 constexpr int64_t sensor_read_delay_ms =
@@ -57,10 +57,64 @@ void subscribeToWatchdog() {
     if (err == ESP_OK) { err = esp_task_wdt_add(nullptr); }
     if (err != ESP_OK) { ESP_LOGE(tag, "Task watchdog setup failed: %s", esp_err_to_name(err)); }
 }
+
+// How each reading is logged: value * scale with the given decimals, then the unit.
+struct ReadingFormat {
+    SensorType type;
+    const char* label;
+    float scale;
+    int decimals;
+    const char* unit;
+};
+
+// NOLINTBEGIN(modernize-use-designated-initializers): a table reads better positionally.
+constexpr PerSensorType<ReadingFormat> reading_formats = {{
+    {SensorType::TEMPERATURE, "Temperature", 1.0F, 2, "°C"},
+    {SensorType::PRESSURE, "Pressure", 0.01F, 2, "hPa"},
+    {SensorType::RELATIVE_HUMIDITY, "Relative Humidity", 1.0F, 2, "%"},
+    {SensorType::CARBON_DIOXIDE_CONCENTRATION, "CO2 Concentration", 1.0F, 2, "ppm"},
+    {SensorType::ILLUMINANCE, "Illuminance", 1.0F, 2, "lux"},
+    {SensorType::TVOC_CONCENTRATION, "TVOC Concentration", 1.0F, 0, "ppb"},
+    {SensorType::AIR_QUALITY, "Air Quality", 1.0F, 0, "(1 good .. 6 extremely poor)"},
+    {SensorType::REMAINING_LEVEL, "Remaining Level", 1.0F, 1, "%"},
+    {SensorType::BATTERY_PERCENT, "Battery", 1.0F, 1, "%"},
+    {SensorType::BATTERY_VOLTAGE, "Battery Voltage", 1.0F, 3, "V"},
+    {SensorType::BATTERY_CHARGE_STATE,
+     "Battery Charge State",
+     1.0F,
+     0,
+     "(1 charging, 2 full, 3 not charging)"},
+    {SensorType::OCCUPANCY, "Occupancy", 1.0F, 0, ""},
+}};
+// NOLINTEND(modernize-use-designated-initializers)
+
+// A missing entry would be value-initialized as TEMPERATURE.
+constexpr bool readingFormatsInEnumOrder() {
+    for (size_t i = 0; i < sensor_type_count; ++i) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+        if (reading_formats[i].type != static_cast<SensorType>(i)) { return false; }
+    }
+    return true;
+}
+static_assert(readingFormatsInEnumOrder(), "reading_formats must list every SensorType in order");
+
+void logReadings(const SensorsManager& sensors_manager, const SensorReadings& readings) {
+    for (const auto& format : reading_formats) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+        const auto& value = readings[toIndex(format.type)];
+        if (!value.has_value()) { continue; }
+        ESP_LOGI(tag,
+                 "%s = %.*f %s from %s",
+                 format.label,
+                 format.decimals,
+                 *value * format.scale,
+                 format.unit,
+                 sensors_manager.getSensorModelNameForType(format.type));
+    }
+}
 } // namespace
 
 // NOLINTBEGIN(readability-identifier-naming, readability-function-cognitive-complexity)
-// NOLINTBEGIN(readability-function-size)
 extern "C" void app_main() {
     // Initialize NVS
     ESP_LOGI(tag, "Initializing NVS...");
@@ -144,92 +198,7 @@ extern "C" void app_main() {
 
         // Publish readings even on failure so unavailable values become null in Matter
         const auto& readings = sensors_manager.getReadings();
-        const auto& temperature = at<SensorType::TEMPERATURE>(readings);
-        const auto& pressure = at<SensorType::PRESSURE>(readings);
-        const auto& relative_humidity = at<SensorType::RELATIVE_HUMIDITY>(readings);
-        const auto& carbon_dioxide_concentration =
-            at<SensorType::CARBON_DIOXIDE_CONCENTRATION>(readings);
-        const auto& illuminance = at<SensorType::ILLUMINANCE>(readings);
-        const auto& tvoc_concentration = at<SensorType::TVOC_CONCENTRATION>(readings);
-        const auto& air_quality = at<SensorType::AIR_QUALITY>(readings);
-        const auto& remaining_level = at<SensorType::REMAINING_LEVEL>(readings);
-        const auto& battery_percent = at<SensorType::BATTERY_PERCENT>(readings);
-        const auto& battery_voltage = at<SensorType::BATTERY_VOLTAGE>(readings);
-        const auto& battery_charge_state = at<SensorType::BATTERY_CHARGE_STATE>(readings);
-        const auto& occupancy = at<SensorType::OCCUPANCY>(readings);
-        if (temperature.has_value()) {
-            ESP_LOGI(tag,
-                     "Temperature = %.2f°C from %s",
-                     *temperature,
-                     sensors_manager.getSensorModelNameForType(SensorType::TEMPERATURE));
-        }
-        if (pressure.has_value()) {
-            ESP_LOGI(tag,
-                     "Pressure = %.2f hPa from %s",
-                     *pressure / 100.0F,
-                     sensors_manager.getSensorModelNameForType(SensorType::PRESSURE));
-        }
-        if (relative_humidity.has_value()) {
-            ESP_LOGI(tag,
-                     "Relative Humidity = %.2f %% from %s",
-                     *relative_humidity,
-                     sensors_manager.getSensorModelNameForType(SensorType::RELATIVE_HUMIDITY));
-        }
-        if (carbon_dioxide_concentration.has_value()) {
-            ESP_LOGI(tag,
-                     "Carbon Dioxide (CO2) Concentration = %.2f ppm from %s",
-                     *carbon_dioxide_concentration,
-                     sensors_manager.getSensorModelNameForType(
-                         SensorType::CARBON_DIOXIDE_CONCENTRATION));
-        }
-        if (illuminance.has_value()) {
-            ESP_LOGI(tag,
-                     "Illuminance = %.2f lux from %s",
-                     *illuminance,
-                     sensors_manager.getSensorModelNameForType(SensorType::ILLUMINANCE));
-        }
-        if (tvoc_concentration.has_value()) {
-            ESP_LOGI(tag,
-                     "TVOC Concentration = %.0f ppb from %s",
-                     *tvoc_concentration,
-                     sensors_manager.getSensorModelNameForType(SensorType::TVOC_CONCENTRATION));
-        }
-        if (air_quality.has_value()) {
-            ESP_LOGI(tag,
-                     "Air Quality = %.0f (1 good .. 6 extremely poor) from %s",
-                     *air_quality,
-                     sensors_manager.getSensorModelNameForType(SensorType::AIR_QUALITY));
-        }
-        if (remaining_level.has_value()) {
-            ESP_LOGI(tag,
-                     "Remaining Level = %.1f %% from %s",
-                     *remaining_level,
-                     sensors_manager.getSensorModelNameForType(SensorType::REMAINING_LEVEL));
-        }
-        if (battery_percent.has_value()) {
-            ESP_LOGI(tag,
-                     "Battery = %.1f %% from %s",
-                     *battery_percent,
-                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_PERCENT));
-        }
-        if (battery_voltage.has_value()) {
-            ESP_LOGI(tag,
-                     "Battery Voltage = %.3f V from %s",
-                     *battery_voltage,
-                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_VOLTAGE));
-        }
-        if (battery_charge_state.has_value()) {
-            ESP_LOGI(tag,
-                     "Battery Charge State = %.0f (1 charging, 2 full, 3 not charging) from %s",
-                     *battery_charge_state,
-                     sensors_manager.getSensorModelNameForType(SensorType::BATTERY_CHARGE_STATE));
-        }
-        if (occupancy.has_value()) {
-            ESP_LOGI(tag,
-                     "Occupancy = %.0f from %s",
-                     *occupancy,
-                     sensors_manager.getSensorModelNameForType(SensorType::OCCUPANCY));
-        }
+        logReadings(sensors_manager, readings);
 
         compensations = readings;
 
@@ -246,5 +215,4 @@ extern "C" void app_main() {
         }
     }
 }
-// NOLINTEND(readability-function-size)
 // NOLINTEND(readability-identifier-naming, readability-function-cognitive-complexity)

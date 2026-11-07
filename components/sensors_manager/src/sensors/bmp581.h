@@ -19,19 +19,12 @@ class Bmp581 : public Sensor {
     Bmp581(Bmp581&&) = delete;
     Bmp581& operator=(Bmp581&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_types = {
-            SensorType::TEMPERATURE,
-            SensorType::PRESSURE,
-        };
-        return std::span<const SensorType>{k_types};
-    }
     const char* getModelName() const override {
         return sensor_.dev.chip_id == BMP5_CHIP_ID_SEC ? "BMP585" : "BMP581";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
 
   private:
     esp_err_t initAt(uint8_t address);

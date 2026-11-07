@@ -27,18 +27,12 @@ class Ld2410s : public Sensor {
     Ld2410s(Ld2410s&&) = delete;
     Ld2410s& operator=(Ld2410s&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_types = {
-            SensorType::OCCUPANCY,
-        };
-        return std::span<const SensorType>(k_types);
-    }
     const char* getModelName() const override {
         return "LD2410S";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
     void setReadingListener(ReadingListener listener) override;
 
   private:

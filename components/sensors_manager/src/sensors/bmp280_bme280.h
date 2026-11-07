@@ -19,25 +19,12 @@ class Bmp280Bme280 : public Sensor {
     Bmp280Bme280(Bmp280Bme280&&) = delete;
     Bmp280Bme280& operator=(Bmp280Bme280&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_bme280_types = {
-            SensorType::TEMPERATURE,
-            SensorType::PRESSURE,
-            SensorType::RELATIVE_HUMIDITY,
-        };
-        static constexpr std::array k_bmp280_types = {
-            SensorType::TEMPERATURE,
-            SensorType::PRESSURE,
-        };
-        return is_bme280_ ? std::span<const SensorType>(k_bme280_types)
-                          : std::span<const SensorType>(k_bmp280_types);
-    }
     const char* getModelName() const override {
         return is_bme280_ ? "BME280" : "BMP280";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
 
   private:
     esp_err_t initAt(uint8_t address);

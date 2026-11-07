@@ -4,12 +4,11 @@
 
 #include <esp_check.h>
 
-constexpr const char* tag = "   ***Sensor BMP581***   ";
+#include "i2c_bus.h"
 
-// BMP581 Sensor Configuration (from Kconfig)
-constexpr auto sda_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SDA_GPIO);
-constexpr auto scl_gpio = static_cast<gpio_num_t>(CONFIG_SENSORS_I2C_SCL_GPIO);
-constexpr auto i2c_port = static_cast<i2c_port_t>(CONFIG_SENSORS_I2C_PORT);
+constexpr const char* tag = "sensor_bmp581";
+
+// Pin-selectable I2C addresses, usual default first
 constexpr std::array<uint8_t, 2> i2c_addresses = {0x47, 0x46}; // SDO high, SDO to GND
 
 Bmp581::~Bmp581() {
@@ -19,38 +18,18 @@ Bmp581::~Bmp581() {
     }
 }
 
-std::optional<SensorValueRange> Bmp581::getValueRangeForType(SensorType type) const {
-    // Temperature (°C)
-    constexpr float temp_min_deg_celsius = -40.0F;
-    constexpr float temp_max_deg_celsius = 85.0F;
-    constexpr float temp_abs_threshold = 0.10F;
+namespace {
+// Temperature (°C), pressure (Pa)
+constexpr std::array type_ranges = {
+    SensorTypeRange{.type = SensorType::TEMPERATURE,
+                    .range = {.min = -40.0F, .max = 85.0F, .abs_threshold = 0.10F}},
+    SensorTypeRange{.type = SensorType::PRESSURE,
+                    .range = {.min = 30000.0F, .max = 125000.0F, .abs_threshold = 50.0F}},
+};
+} // namespace
 
-    // Pressure (Pa)
-    constexpr float press_min_pa = 30000.0F;
-    constexpr float press_max_pa = 125000.0F;
-    constexpr float press_abs_threshold = 50.0F;
-
-    switch (type) {
-    case SensorType::TEMPERATURE:
-        return SensorValueRange{.min = temp_min_deg_celsius,
-                                .max = temp_max_deg_celsius,
-                                .abs_threshold = temp_abs_threshold};
-    case SensorType::PRESSURE:
-        return SensorValueRange{
-            .min = press_min_pa, .max = press_max_pa, .abs_threshold = press_abs_threshold};
-    case SensorType::RELATIVE_HUMIDITY:
-    case SensorType::CARBON_DIOXIDE_CONCENTRATION:
-    case SensorType::ILLUMINANCE:
-    case SensorType::TVOC_CONCENTRATION:
-    case SensorType::AIR_QUALITY:
-    case SensorType::REMAINING_LEVEL:
-    case SensorType::BATTERY_PERCENT:
-    case SensorType::BATTERY_VOLTAGE:
-    case SensorType::BATTERY_CHARGE_STATE:
-    case SensorType::OCCUPANCY:
-        return std::nullopt;
-    }
-    return std::nullopt;
+std::span<const SensorTypeRange> Bmp581::getTypeRanges() const {
+    return type_ranges;
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -147,7 +126,7 @@ esp_err_t Bmp581::configure() {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-esp_err_t Bmp581::read(SensorReadings& readings, SensorReadings& /*compensations*/) {
+esp_err_t Bmp581::read(SensorReadings& readings, const SensorReadings& /*compensations*/) {
     // guard instead of a null deref
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");

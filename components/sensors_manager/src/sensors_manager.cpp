@@ -19,14 +19,9 @@
 #include "sensors/veml7700.h"
 #include "sensors/vl53l1x.h"
 
-constexpr const char* tag = "   ***sensors_manager***   ";
+constexpr const char* tag = "sensors_manager";
 
 namespace {
-bool providesType(const Sensor& sensor, SensorType type) {
-    const auto types = sensor.getTypes();
-    return std::ranges::find(types, type) != types.end();
-}
-
 // True when every type except the aggregated AIR_QUALITY has an owner.
 bool allOwnedTypesCovered(const PerSensorType<Sensor*>& owners) {
     for (size_t i = 0; i < sensor_type_count; ++i) {
@@ -72,7 +67,7 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
 
         // First sensor providing a type owns it.
         bool used = false;
-        for (const auto provided_type : sensor->getTypes()) {
+        for (const auto& [provided_type, range] : sensor->getTypeRanges()) {
             if (provided_type == SensorType::AIR_QUALITY) { continue; } // aggregated, not owned
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
             auto& slot = sensors_by_type_[toIndex(provided_type)];
@@ -91,12 +86,13 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     // Air quality comes from every sensor that reports it and owns an Air Quality endpoint metric.
     for (const auto& sensor : active_sensors_) {
         const bool owns_endpoint_type =
-            std::ranges::any_of(sensor->getTypes(), [&](const SensorType type) {
+            std::ranges::any_of(sensor->getTypeRanges(), [&](const SensorTypeRange& type_range) {
+                const auto type = type_range.type;
                 return isAirQualityEndpointType(type) &&
                        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                        sensors_by_type_[toIndex(type)] == sensor.get();
             });
-        if (owns_endpoint_type && providesType(*sensor, SensorType::AIR_QUALITY)) {
+        if (owns_endpoint_type && sensor->providesType(SensorType::AIR_QUALITY)) {
             air_quality_sensors_.push_back(sensor.get());
             if (!air_quality_model_names_.empty()) { air_quality_model_names_ += "+"; }
             air_quality_model_names_ += sensor->getModelName();
@@ -110,7 +106,7 @@ esp_err_t SensorsManager::init(int64_t read_interval_ms) {
     return ESP_OK;
 }
 
-esp_err_t SensorsManager::readValues(SensorReadings& compensations) {
+esp_err_t SensorsManager::readValues(const SensorReadings& compensations) {
     if (!initialized_) { return ESP_ERR_INVALID_STATE; }
 
     auto ret = ESP_OK;
@@ -120,7 +116,7 @@ esp_err_t SensorsManager::readValues(SensorReadings& compensations) {
         const auto err = sensor->read(sensor_readings, compensations);
         if (err != ESP_OK) { ret = err; }
         // Take only the types this sensor owns; failed reads clear them.
-        for (const auto type : sensor->getTypes()) {
+        for (const auto& [type, range] : sensor->getTypeRanges()) {
             const auto index = toIndex(type);
             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
             if (sensors_by_type_[index] == sensor.get()) {

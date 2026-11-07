@@ -19,21 +19,12 @@ class Scd30 : public Sensor {
     Scd30(Scd30&&) = delete;
     Scd30& operator=(Scd30&&) = delete;
 
-    std::span<const SensorType> getTypes() const override {
-        static constexpr std::array k_types = {
-            SensorType::TEMPERATURE,
-            SensorType::RELATIVE_HUMIDITY,
-            SensorType::CARBON_DIOXIDE_CONCENTRATION,
-            SensorType::AIR_QUALITY,
-        };
-        return std::span<const SensorType>{k_types};
-    }
     const char* getModelName() const override {
         return "SCD30";
     }
-    std::optional<SensorValueRange> getValueRangeForType(SensorType type) const override;
+    std::span<const SensorTypeRange> getTypeRanges() const override;
     esp_err_t init(int64_t read_interval_ms) override;
-    esp_err_t read(SensorReadings& readings, SensorReadings& compensations) override;
+    esp_err_t read(SensorReadings& readings, const SensorReadings& compensations) override;
 
   private:
     struct Measurement {

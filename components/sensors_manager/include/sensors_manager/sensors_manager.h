@@ -22,7 +22,7 @@ class SensorsManager {
     SensorsManager& operator=(SensorsManager&&) = delete;
 
     esp_err_t init(int64_t read_interval_ms);
-    esp_err_t readValues(SensorReadings& compensations);
+    esp_err_t readValues(const SensorReadings& compensations);
     // Latest readings in °C (Temperature), Pa (Pressure), %RH (Humidity); nullopt if unavailable.
     const SensorReadings& getReadings() const {
         return readings_;
