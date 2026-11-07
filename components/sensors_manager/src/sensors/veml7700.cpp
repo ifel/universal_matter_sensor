@@ -42,11 +42,27 @@ static constexpr std::array<step_t, 9> ladder{{
 }};
 
 namespace {
+constexpr uint8_t als_result_register = 0x04;
+constexpr uint16_t max_counts = 10000; // step down above this (well below saturation)
+constexpr uint16_t min_counts = 100;   // step up at or below this (resolution)
+
+// Vishay "Designing the VEML7700 Into an Application": at gain 1/8 and 1/4 the response is
+// non-linear above 1000 lx; this polynomial corrects it.
+constexpr float correction_min_lux = 1000.0F;
+
+float correctHighLux(float lux) {
+    return (((((6.0135e-13F * lux) - 9.3924e-9F) * lux + 8.1488e-5F) * lux) + 1.0023F) * lux;
+}
+
+bool isLowGain(uint16_t gain) {
+    return gain == VEML7700_GAIN_DIV_8 || gain == VEML7700_GAIN_DIV_4;
+}
+
 esp_err_t readAlsCounts(i2c_dev_t* dev, uint16_t* counts) {
     std::array<uint8_t, 2> bytes{};
-    I2C_DEV_TAKE_MUTEX(dev);                           // NOLINT(readability-identifier-length)
-    auto err = i2c_dev_read_reg(dev, 0x04, &bytes, 2); // ALS result register
-    I2C_DEV_GIVE_MUTEX(dev);                           // NOLINT(readability-identifier-length)
+    I2C_DEV_TAKE_MUTEX(dev); // NOLINT(readability-identifier-length)
+    auto err = i2c_dev_read_reg(dev, als_result_register, &bytes, 2);
+    I2C_DEV_GIVE_MUTEX(dev); // NOLINT(readability-identifier-length)
     if (err == ESP_OK) {
         *counts = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8); // LSB first
     }
@@ -134,31 +150,36 @@ esp_err_t Veml7700::read(SensorReadings& readings, SensorReadings& /*compensatio
     ESP_RETURN_ON_FALSE(
         initialized_, ESP_ERR_INVALID_STATE, tag, "Cannot read values on non initialized sensor");
 
-    for (auto i = 0; i < 9; i++) {
+    at<SensorType::ILLUMINANCE>(readings) = std::nullopt;
+
+    for (size_t attempt = 0; attempt < ladder.size(); ++attempt) {
         uint16_t counts{};
         const auto ret = readAlsCounts(&sensor_, &counts);
         ESP_RETURN_ON_ERROR(ret, tag, "Could not read ALS counts %s", esp_err_to_name(ret));
-        if (counts > 10000 && ladderIdx_ > 0) {
+        if (counts > max_counts && ladderIdx_ > 0) {
             ladderIdx_--;
             ESP_LOGD(
                 tag, "Counts %d too high, decreasing gain to ladder index %d", counts, ladderIdx_);
             ESP_RETURN_ON_ERROR(applyConfigRange(), tag, "read failed trying to change range");
             continue;
         }
-        if (counts <= 100 && ladderIdx_ < 8) {
+        if (counts <= min_counts && ladderIdx_ + 1U < ladder.size()) {
             ladderIdx_++;
             ESP_LOGD(
                 tag, "Counts %d too low, increasing gain to ladder index %d", counts, ladderIdx_);
             ESP_RETURN_ON_ERROR(applyConfigRange(), tag, "read failed trying to change range");
             continue;
         }
-        at<SensorType::ILLUMINANCE>(readings) =
-            static_cast<float>(counts) *
-            ladder[ladderIdx_].res; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-        break;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+        const auto& step = ladder[ladderIdx_];
+        float lux = static_cast<float>(counts) * step.res;
+        if (isLowGain(step.gain) && lux > correction_min_lux) { lux = correctHighLux(lux); }
+        at<SensorType::ILLUMINANCE>(readings) = lux;
+        return ESP_OK;
     }
 
-    return ESP_OK;
+    ESP_LOGW(tag, "Light level did not settle within the gain ladder");
+    return ESP_ERR_NOT_FINISHED;
 }
 
 esp_err_t Veml7700::applyConfigRange() {

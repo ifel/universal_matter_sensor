@@ -12,7 +12,7 @@ It supports the following I2C sensors (individually or combined on the same I2C 
    - **BMP280**: Temperature and Pressure
 5. **SCD30**: Carbon Dioxide (CO₂) Concentration (with derived Matter **Air Quality**), Temperature, and Relative Humidity
 6. **ENS160**: Equivalent CO₂ (eCO₂), TVOC (`ppb`), and Air Quality (from the sensor's UBA index)
-7. **VEML7700**: Illuminance (Ambient Light in `lx`)
+7. **VEML7700**: Illuminance (Ambient Light in `lx`; auto-ranged gain, with Vishay's non-linearity correction above `1000 lx` at gain 1/8 and 1/4)
 8. **TSL2591**: Illuminance (Ambient Light in `lx`, IR-compensated, better in low light; up to ~88,000 lx)
 9. **VL53L1X**: Remaining Level (`%`), computed on the device from a time-of-flight distance (see [Remaining Level](#remaining-level-vl53l1x))
 10. **MAX17048 / MAX17049**: Battery percentage, voltage, and charge state of the device's own single-cell Li-ion / LiPo battery (see [Battery](#battery-max17048))
