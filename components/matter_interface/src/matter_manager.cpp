@@ -713,6 +713,8 @@ std::optional<uint16_t> createIlluminanceSensorEndpoint(esp_matter::node_t* matt
 // Remaining level (e.g. salt block) as HEPA Filter Monitoring "Condition": the only HA-mapped
 // "% of a consumable left" attribute. There is no fitting device type; Air Purifier is HEPA's home,
 // used without its Fan Control cluster so controllers don't show a dummy fan.
+// Deliberately non-conformant: Air Purifier requires Fan Control. Home Assistant accepts it; other
+// controllers may hide the endpoint, and the device could not be certified as is.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 std::optional<uint16_t> createRemainingLevelEndpoint(esp_matter::node_t* matter_node) {
     static constexpr const char* type_name = "Remaining level";
