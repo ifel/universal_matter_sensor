@@ -8,6 +8,7 @@ namespace {
 constexpr const char* tag = "   ***status_led***   ";
 constexpr uint64_t k_slow_blink_us = 1000ULL * 1000ULL;
 constexpr uint64_t k_fast_blink_us = 200ULL * 1000ULL;
+constexpr uint64_t k_ready_on_us = 3ULL * 60ULL * 1000ULL * 1000ULL; // solid on after boot
 
 #if CONFIG_STATUS_LED_GPIO >= 0
 constexpr gpio_num_t k_status_led_gpio = static_cast<gpio_num_t>(CONFIG_STATUS_LED_GPIO);
@@ -25,6 +26,10 @@ StatusLed::~StatusLed() {
     if (timer_ != nullptr) {
         esp_timer_stop(timer_);
         esp_timer_delete(timer_);
+    }
+    if (ready_timer_ != nullptr) {
+        esp_timer_stop(ready_timer_);
+        esp_timer_delete(ready_timer_);
     }
 }
 
@@ -48,12 +53,23 @@ void StatusLed::init() {
         ESP_LOGE(tag, "Failed to create blink timer");
         timer_ = nullptr;
     }
+
+    timer_args.callback = &StatusLed::readyTimeoutCallback;
+    timer_args.name = "status_led_ready";
+    if (esp_timer_create(&timer_args, &ready_timer_) != ESP_OK) {
+        ESP_LOGE(tag, "Failed to create ready timer");
+        ready_timer_ = nullptr;
+    }
 #endif
 }
 
 void StatusLed::setReady(bool ready) {
     const std::lock_guard<std::mutex> lock(mutex_);
     ready_ = ready;
+    if (ready_timer_ != nullptr) {
+        esp_timer_stop(ready_timer_);
+        if (ready) { esp_timer_start_once(ready_timer_, k_ready_on_us); }
+    }
     applyLocked();
 }
 
@@ -107,6 +123,13 @@ void StatusLed::timerCallback(void* arg) {
     if (self->mode_ == Mode::SLOW_BLINK || self->mode_ == Mode::FAST_BLINK) {
         self->setLevelLocked(!self->led_on_);
     }
+}
+
+void StatusLed::readyTimeoutCallback(void* arg) {
+    auto* self = static_cast<StatusLed*>(arg);
+    const std::lock_guard<std::mutex> lock(self->mutex_);
+    self->ready_ = false;
+    self->applyLocked();
 }
 
 void StatusLed::setLevelLocked(bool is_on) {

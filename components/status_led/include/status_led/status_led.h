@@ -7,7 +7,8 @@
 #include <esp_timer.h>
 
 // Status LED driven by three flags. Priority: identifying (fast blink) > commissioning (slow
-// blink) > ready (solid on) > off. All methods are safe to call from any task.
+// blink) > ready (solid on, only for a while after setReady(true)) > off. All methods are safe to
+// call from any task.
 class StatusLed {
   public:
     StatusLed() = default;
@@ -27,11 +28,13 @@ class StatusLed {
     enum class Mode : uint8_t { OFF, ON, SLOW_BLINK, FAST_BLINK };
 
     static void timerCallback(void* arg);
+    static void readyTimeoutCallback(void* arg);
     void applyLocked();
     void setLevelLocked(bool is_on);
 
     std::mutex mutex_;
     esp_timer_handle_t timer_{nullptr};
+    esp_timer_handle_t ready_timer_{nullptr}; // ends the solid "ready" indication
     Mode mode_{Mode::OFF};
     bool led_on_{false};
     bool ready_{false};

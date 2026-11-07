@@ -152,7 +152,7 @@ The **HLK-LD2410S** is detected over UART (it must answer the *enable configurat
 - **Availability**: if no report arrives for `5 s` the radar counts as unavailable and occupancy turns *clear* (after the hold time) instead of staying stuck (`Occupancy` is not nullable); the next report restores it.
 - With no LD2410S connected, probing adds about `1 s` to boot; `CONFIG_LD2410S_ENABLED=n` skips it and leaves the UART pins free.
 
-> **Onboard Status LED**: Driven by the `status_led` component, the onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON** during normal operation once sensor and Matter initialization succeed, blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
+> **Onboard Status LED**: Driven by the `status_led` component, the onboard yellow User LED on the XIAO ESP32C6 (**`GPIO15`**, active-low, configurable via `CONFIG_STATUS_LED_GPIO`) stays **OFF during boot/init**, turns **solid ON for 3 minutes** once sensor and Matter initialization succeed (then off), blinks slowly (`1000 ms`) while the Matter commissioning window is open, and blinks rapidly (`200 ms`) when the Matter **Identify** command is triggered from Home Assistant.
 
 ---
 
@@ -166,7 +166,7 @@ The **HLK-LD2410S** is detected over UART (it must answer the *enable configurat
 - [`components/tmp117/`](components/tmp117/include/tmp117.h) — TI TMP117 / TMP119 driver on esp-idf-lib `i2cdev` (one-shot 8× averaged conversions).
 - [`components/ens160/`](components/ens160/include/ens160.h) — ScioSense ENS160 driver, ported from `k0i05/esp_ens160` onto esp-idf-lib `i2cdev` so it shares the I2C bus with the other drivers.
 - [`components/bmp5/`](components/bmp5/include/bmp5_i2c.h) — Bosch BMP5 SensorAPI (git submodule in `third_party/`) plus `bmp5_i2c` glue that maps its read/write/delay callbacks onto esp-idf-lib `i2cdev`.
-- [`components/status_led/`](components/status_led/include/status_led/status_led.h) — Thread-safe [`StatusLed`](components/status_led/include/status_led/status_led.h) helper driven by `setReady` (solid on), `setCommissioning` (slow blink) and `setIdentifying` (fast blink). It has no Matter dependency; `app_main` connects it to `MatterManager` listeners.
+- [`components/status_led/`](components/status_led/include/status_led/status_led.h) — Thread-safe [`StatusLed`](components/status_led/include/status_led/status_led.h) helper driven by `setReady` (solid on for 3 minutes), `setCommissioning` (slow blink) and `setIdentifying` (fast blink). It has no Matter dependency; `app_main` connects it to `MatterManager` listeners.
 
 ---
 
