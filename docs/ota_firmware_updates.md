@@ -14,7 +14,7 @@ CONFIG_CHIP_OTA_IMAGE_BUILD=y
 ```
 
 - `CONFIG_ENABLE_OTA_REQUESTOR=y`: Initializes the Matter OTA Software Update Requestor cluster and endpoints inside `esp_matter::start()`.
-- `CONFIG_CHIP_OTA_IMAGE_BUILD=y`: Automatically wraps the compiled `.bin` binary with a Matter OTA header to produce `matter_sensor-ota.bin` during `idf.py build`. *(Note: if the `.ota` image already exists in the build directory, remove it before rebuilding or generate it manually below).*
+- `CONFIG_CHIP_OTA_IMAGE_BUILD=y`: Automatically wraps the compiled `.bin` binary with a Matter OTA header to produce `matter_sensor-ota.bin` next to `matter_sensor.bin` (in `build/<preset>/`) on every `idf.py build`. The build's "Project build complete" message names only `matter_sensor.bin`; check the OTA image with `ota_image_tool.py show` (section 2).
 
 ### Separate Product IDs for Thread (`0x8001`) vs Wi-Fi (`0x8000`)
 
@@ -47,6 +47,8 @@ Matter requires the new image's `PROJECT_VER_NUMBER` to be **strictly higher** t
    # or:
    idf.py --preset prod_wifi build   # outputs build/prod_wifi/matter_sensor-ota.bin (PID 0x8000)
    ```
+
+   Without `--preset` (or `IDF_PRESET`), `idf.py` uses the `default` (dev) preset and writes `build/default/matter_sensor-ota.bin`, which is not a `prod` image.
 
 3. Inspect the generated OTA image header to verify the Vendor ID, Product ID, and software version number:
 
