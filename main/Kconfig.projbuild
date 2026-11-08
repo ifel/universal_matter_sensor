@@ -7,4 +7,19 @@ menu "Application Configuration"
         help
             Delay in milliseconds between consecutive sensor readings.
 
+    config XIAO_RF_SWITCH
+        bool "Power the XIAO ESP32-C6 antenna RF switch"
+        depends on IDF_TARGET_ESP32C6
+        default y
+        help
+            Drives GPIO3 low to power the board's RF switch, and GPIO14 to select the antenna.
+            Unpowered, the switch passes only a weak signal (short range).
+
+    config XIAO_EXTERNAL_ANTENNA
+        bool "Use the external U.FL antenna"
+        depends on XIAO_RF_SWITCH
+        default n
+        help
+            Off: the built-in ceramic antenna.
+
 endmenu

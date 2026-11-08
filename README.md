@@ -206,7 +206,7 @@ idf.py --preset default set-target esp32c6     # Development (Matter-over-Wi-Fi)
 
 Project settings are organized by component in `idf.py menuconfig`:
 
-- **`Application Configuration`** ([`main/Kconfig.projbuild`](main/Kconfig.projbuild)): Sensor polling interval (`CONFIG_SENSOR_READ_DELAY_MS`, default `10000 ms`).
+- **`Application Configuration`** ([`main/Kconfig.projbuild`](main/Kconfig.projbuild)): Sensor polling interval (`CONFIG_SENSOR_READ_DELAY_MS`, default `10000 ms`) and the XIAO ESP32-C6 antenna RF switch (`CONFIG_XIAO_RF_SWITCH`, default on: GPIO3 low powers it; `CONFIG_XIAO_EXTERNAL_ANTENNA` drives GPIO14 high for the U.FL antenna, default off = ceramic). Without it the switch is unpowered and the radio range is very short.
 - **`Sensors Configuration`** ([`components/sensors_manager/Kconfig.projbuild`](components/sensors_manager/Kconfig.projbuild)): Shared I2C port (`CONFIG_SENSORS_I2C_PORT`, default `0`), SDA/SCL GPIOs (`CONFIG_SENSORS_I2C_SDA_GPIO` = `22`, `CONFIG_SENSORS_I2C_SCL_GPIO` = `23`), and the VL53L1X remaining-level calibration (`CONFIG_VL53L1X_FULL_DISTANCE_MM`, default `30`; `CONFIG_VL53L1X_LEVEL_HEIGHT_MM`, default `290`).
 - **`Matter Manager Configuration`** ([`components/matter_interface/Kconfig.projbuild`](components/matter_interface/Kconfig.projbuild)): Maximum reporting interval (`CONFIG_MATTER_REPORT_MAX_INTERVAL_S`, default `180 s`) and the battery `BatChargeLevel` thresholds (`CONFIG_MATTER_BATTERY_WARNING_PERCENT`, default `20`; `CONFIG_MATTER_BATTERY_CRITICAL_PERCENT`, default `10`).
 - **`Status LED Configuration`** ([`components/status_led/Kconfig.projbuild`](components/status_led/Kconfig.projbuild)): Status LED GPIO (`15` default, `-1` to disable) and active-low polarity (`CONFIG_STATUS_LED_ACTIVE_LOW`).

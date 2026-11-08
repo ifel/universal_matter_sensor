@@ -1,6 +1,6 @@
+#include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-
 // Provides CHIP_DEVICE_CONFIG_ENABLE_THREAD used below.
 #include <esp_matter.h>
 #include <esp_timer.h>
@@ -35,6 +35,34 @@ constexpr uint64_t loop_watchdog_timeout_us =
     static_cast<uint64_t>(sensor_read_delay_ms + loop_watchdog_margin_ms) * 1000U;
 
 namespace {
+#if CONFIG_XIAO_RF_SWITCH
+// XIAO ESP32-C6 RF switch: GPIO3 low powers it, GPIO14 selects the antenna (0 = ceramic, 1 = U.FL).
+constexpr gpio_num_t rf_switch_enable_gpio = GPIO_NUM_3;
+constexpr gpio_num_t rf_antenna_select_gpio = GPIO_NUM_14;
+#    if CONFIG_XIAO_EXTERNAL_ANTENNA
+constexpr bool external_antenna = true;
+#    else
+constexpr bool external_antenna = false;
+#    endif
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void enableRfSwitch() {
+    const gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << rf_switch_enable_gpio) | (1ULL << rf_antenna_select_gpio),
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    const esp_err_t err = gpio_config(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(tag, "RF switch setup failed: %s", esp_err_to_name(err));
+        return;
+    }
+    gpio_set_level(rf_switch_enable_gpio, 0);
+    vTaskDelay(pdMS_TO_TICKS(100)); // let the switch power up (Seeed's sequence)
+    gpio_set_level(rf_antenna_select_gpio, external_antenna ? 1 : 0);
+    ESP_LOGI(tag, "RF switch on, %s antenna", external_antenna ? "external" : "ceramic");
+}
+#endif
+
 // Logs the reason and reboots so a transient fault (wiring, power) can recover.
 [[noreturn]] void restartAfterFailure(const char* reason) {
     ESP_LOGE(
@@ -125,6 +153,10 @@ void logReadings(const SensorsManager& sensors_manager, const SensorReadings& re
 
 // NOLINTBEGIN(readability-identifier-naming, readability-function-cognitive-complexity)
 extern "C" void app_main() {
+#if CONFIG_XIAO_RF_SWITCH
+    enableRfSwitch(); // before the radio starts
+#endif
+
     // Initialize NVS
     ESP_LOGI(tag, "Initializing NVS...");
     esp_err_t err = nvs_flash_init();
