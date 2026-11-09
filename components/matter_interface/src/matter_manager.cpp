@@ -952,6 +952,53 @@ esp_err_t updateCo2Statistics(const std::optional<float>& value,
 
 constexpr uint16_t root_endpoint_id = 0;
 
+// Fixed endpoint IDs: a missing sensor must not renumber the others (controllers cache them).
+constexpr uint16_t temperature_endpoint_id = 1;
+constexpr uint16_t pressure_endpoint_id = 2;
+constexpr uint16_t relative_humidity_endpoint_id = 3;
+constexpr uint16_t air_quality_endpoint_id = 4;
+constexpr uint16_t illuminance_endpoint_id = 5;
+constexpr uint16_t remaining_level_endpoint_id = 6;
+constexpr uint16_t occupancy_endpoint_id = 7;
+constexpr uint16_t power_source_endpoint_id = 8;
+
+// esp-matter numbers endpoints sequentially, so the IDs of absent sensors are taken by empty
+// placeholders, destroyed once Matter has started.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+uint16_t s_next_endpoint_id = root_endpoint_id + 1;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::vector<esp_matter::endpoint_t*> s_placeholder_endpoints;
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): the log macros inflate it.
+bool reserveEndpointsUpTo(esp_matter::node_t* matter_node, uint16_t endpoint_id) {
+    while (s_next_endpoint_id < endpoint_id) {
+        auto* placeholder = esp_matter::endpoint::create(
+            matter_node, esp_matter::ENDPOINT_FLAG_DESTROYABLE, nullptr);
+        if (placeholder == nullptr) { return false; }
+        s_placeholder_endpoints.push_back(placeholder);
+        if (esp_matter::endpoint::get_id(placeholder) != s_next_endpoint_id) {
+            ESP_LOGE(tag, "Endpoint numbering out of sync");
+            return false;
+        }
+        ++s_next_endpoint_id;
+    }
+    if (s_next_endpoint_id != endpoint_id) {
+        ESP_LOGE(tag, "Endpoint %u is already taken", endpoint_id);
+        return false;
+    }
+    ++s_next_endpoint_id; // taken by the endpoint created next
+    return true;
+}
+
+void destroyPlaceholderEndpoints(esp_matter::node_t* matter_node) {
+    for (auto* placeholder : s_placeholder_endpoints) {
+        if (esp_matter::endpoint::destroy(matter_node, placeholder) != ESP_OK) {
+            ESP_LOGW(tag, "Failed to remove a placeholder endpoint");
+        }
+    }
+    s_placeholder_endpoints.clear();
+}
+
 // Wired builds (no battery gauge): a Power Source cluster (Wired feature, DC) on the root endpoint.
 bool addWiredRootPowerSource(esp_matter::node_t* matter_node) {
     auto* root = esp_matter::endpoint::get(matter_node, root_endpoint_id);
@@ -1102,6 +1149,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::TEMPERATURE>(ranges)) {
         auto& measurement = at<SensorType::TEMPERATURE>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, temperature_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id =
             createTemperatureSensorEndpoint(matter_node,
                                             matterScaleTemp(range->min, *range),
@@ -1116,6 +1164,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::PRESSURE>(ranges)) {
         auto& measurement = at<SensorType::PRESSURE>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, pressure_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id = createPressureSensorEndpoint(matter_node, *range);
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize pressure sensor.");
@@ -1126,6 +1175,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::RELATIVE_HUMIDITY>(ranges)) {
         auto& measurement = at<SensorType::RELATIVE_HUMIDITY>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, relative_humidity_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id = createRelativeHumiditySensorEndpoint(
             matter_node,
             matterScaleRelativeHumidity(range->min, *range),
@@ -1140,7 +1190,9 @@ MatterManager::init(const SensorRanges& ranges) {
     // CO2, TVOC and air quality are independent, but share one Air Quality Sensor endpoint.
     esp_matter::endpoint_t* aq_endpoint = nullptr;
     auto get_aq_endpoint = [&]() -> esp_matter::endpoint_t* {
-        if (aq_endpoint == nullptr) { aq_endpoint = createAirQualityEndpoint(matter_node); }
+        if (aq_endpoint == nullptr && reserveEndpointsUpTo(matter_node, air_quality_endpoint_id)) {
+            aq_endpoint = createAirQualityEndpoint(matter_node);
+        }
         return aq_endpoint;
     };
 
@@ -1193,6 +1245,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::ILLUMINANCE>(ranges)) {
         auto& measurement = at<SensorType::ILLUMINANCE>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, illuminance_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id =
             createIlluminanceSensorEndpoint(matter_node,
                                             matterScaleIlluminance(range->min, *range),
@@ -1207,6 +1260,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::REMAINING_LEVEL>(ranges)) {
         auto& measurement = at<SensorType::REMAINING_LEVEL>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, remaining_level_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id = createRemainingLevelEndpoint(matter_node);
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize remaining level sensor.");
@@ -1218,6 +1272,7 @@ MatterManager::init(const SensorRanges& ranges) {
     if (const auto& range = at<SensorType::OCCUPANCY>(ranges)) {
         auto& measurement = at<SensorType::OCCUPANCY>(measurements_);
         measurement.range = range;
+        if (!reserveEndpointsUpTo(matter_node, occupancy_endpoint_id)) { return ESP_FAIL; }
         measurement.endpoint_id = createOccupancyEndpoint(matter_node);
         if (!measurement.endpoint_id) {
             ESP_LOGE(tag, "Failed to initialize occupancy sensor.");
@@ -1230,6 +1285,7 @@ MatterManager::init(const SensorRanges& ranges) {
         const auto& voltage_range = at<SensorType::BATTERY_VOLTAGE>(ranges);
         const auto& charge_state_range = at<SensorType::BATTERY_CHARGE_STATE>(ranges);
         if (percent_range || voltage_range || charge_state_range) {
+            if (!reserveEndpointsUpTo(matter_node, power_source_endpoint_id)) { return ESP_FAIL; }
             const auto endpoint_id = createPowerSourceEndpoint(matter_node,
                                                                percent_range.has_value(),
                                                                voltage_range.has_value(),
@@ -1278,6 +1334,7 @@ MatterManager::init(const SensorRanges& ranges) {
         return matter_err;
     }
     ESP_LOGI(tag, "Matter started");
+    destroyPlaceholderEndpoints(matter_node);
     PrintOnboardingCodes(chip::RendezvousInformationFlags(CONFIG_RENDEZVOUS_MODE));
 
     // Console shell is helpful when developing/debugging the application.
