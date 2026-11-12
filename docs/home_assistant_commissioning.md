@@ -14,10 +14,11 @@ This document describes how to commission the ESP32 Matter sensor into **Home As
    idf.py --preset prod_wifi erase-flash flash monitor   # Matter over Wi-Fi (PID 0x8000)
    ```
 
-2. On boot, the Matter stack prints the onboarding credentials in the serial log:
-   - **Manual Pairing Code**: `34970112332` (default test credentials: Passcode `20202021`, Discriminator `3840`)
-   - **QR Code Payload**: `MT:-24J0AFN00KA0648G00`
-   - **QR Code URL**: `https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3A-24J0AFN00KA0648G00`
+2. On boot, the firmware prints the onboarding codes in the serial log (`matter_manager: QR code: …`, `QR code image: …`, `Manual pairing code: …`). With the default test credentials (Passcode `20202021`, Discriminator `3840`, Bluetooth discovery) they are:
+   - **Manual Pairing Code** (all presets): `34970112332`
+   - **QR Code** `prod` (Thread, PID `0x8001`): `MT:-24J042C00KA0648G00` ([image](https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3A-24J042C00KA0648G00))
+   - **QR Code** `prod_wifi` / `default` (Wi-Fi, PID `0x8000`): `MT:Y.K9042C00KA0648G00` ([image](https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3AY.K9042C00KA0648G00))
+   - The codes are derived from the passcode, discriminator, Vendor/Product ID and discovery mode, so they change only if one of those does (e.g. a factory partition from `esp-matter-mfg-tool`, below). To compute them without a device: `$ESP_MATTER_PATH/connectedhomeip/connectedhomeip/src/setup_payload/python/SetupPayload.py generate -d 3840 -p 20202021 -vid 65521 -pid 32769 -dm 2 -cf 0` (decimal IDs; `-dm 2` = BLE).
    - *Tip*: With `CONFIG_ENABLE_CHIP_SHELL=y` enabled, you can type `matter onboardingcodes ble` in the serial monitor at any time to reprint them.
 
 ---

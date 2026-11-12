@@ -240,6 +240,8 @@ idf.py --preset prod menuconfig
 
 Press `CTRL+]` to exit the serial monitor.
 
+At boot the log shows the Matter pairing codes (`QR code`, `QR code image`, `Manual pairing code`). Every 60 s it logs the radio link and heap, e.g. `Thread child: parent 0x5400 RSSI -68 dBm (last -70), LQI 3; heap 85 KB free (min 61 KB)`: a child reports its parent, a router its best link to another router (Wi-Fi builds: the AP's RSSI). Roughly, above -70 dBm is good, below -85 dBm is unreliable.
+
 Once running, follow the [**Home Assistant Commissioning Guide**](docs/home_assistant_commissioning.md) to add the sensor to Home Assistant.
 
 ---

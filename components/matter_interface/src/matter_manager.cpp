@@ -24,8 +24,17 @@
 #include <esp_matter.h>
 #include <esp_matter_console.h>
 #include <esp_matter_data_model.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
+#include <setup_payload/QRCodeSetupPayloadGenerator.h>
+#if CHIP_DEVICE_CONFIG_ENABLE_THREAD
+#    include <esp_openthread.h>
+#    include <esp_openthread_lock.h>
+#    include <openthread/thread.h>
+#elif CHIP_DEVICE_CONFIG_ENABLE_WIFI
+#    include <esp_wifi.h>
+#endif
 
 // Define the rendezvous mode for Matter commissioning if missing from Kconfig.
 // This tells the commissioner (phone) how to connect for the initial Wi-Fi handover.
@@ -1124,6 +1133,122 @@ esp_err_t updateBatteryChargeLevel(const std::optional<uint16_t> endpoint_id,
     last_level = level;
     return ESP_OK;
 }
+
+// Printed with ESP_LOG: the SDK's PrintOnboardingCodes uses Matter progress logs, compiled out in
+// prod.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): the log macros inflate it.
+void logOnboardingCodes() {
+    const chip::RendezvousInformationFlags flags(CONFIG_RENDEZVOUS_MODE);
+    std::array<char,
+               chip::QRCodeBasicSetupPayloadGenerator::kMaxQRCodeBase38RepresentationLength + 1>
+        buffer{};
+
+    chip::MutableCharSpan qr_code(buffer);
+    if (GetQRCode(qr_code, flags) == CHIP_NO_ERROR) {
+        ESP_LOGI(tag, "QR code: %s", qr_code.data());
+        std::array<char, 192> url{}; // base URL + percent-encoded payload
+        if (GetQRCodeUrl(url.data(), url.size(), qr_code) == CHIP_NO_ERROR) {
+            ESP_LOGI(tag, "QR code image: %s", url.data());
+        }
+    } else {
+        ESP_LOGE(tag, "Failed to generate the QR code");
+    }
+
+    chip::MutableCharSpan manual_code(buffer);
+    if (GetManualPairingCode(manual_code, flags) == CHIP_NO_ERROR) {
+        ESP_LOGI(tag, "Manual pairing code: %s", manual_code.data());
+    } else {
+        ESP_LOGE(tag, "Failed to generate the manual pairing code");
+    }
+}
+
+constexpr uint64_t network_status_interval_us = 60ULL * 1'000'000;
+
+void logHeap(const char* link) {
+    ESP_LOGI(tag,
+             "%s; heap %u KB free (min %u KB)",
+             link,
+             static_cast<unsigned int>(esp_get_free_heap_size() / 1024U),
+             static_cast<unsigned int>(esp_get_minimum_free_heap_size() / 1024U));
+}
+
+#if CHIP_DEVICE_CONFIG_ENABLE_THREAD
+// A child reports its parent link; a router its best link to another router.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void logNetworkStatus(void* /*arg*/) {
+    std::array<char, 96> link{};
+    if (!esp_openthread_lock_acquire(pdMS_TO_TICKS(1000))) { return; }
+    otInstance* instance = esp_openthread_get_instance();
+    const otDeviceRole role = otThreadGetDeviceRole(instance);
+    if (role == OT_DEVICE_ROLE_CHILD) {
+        otRouterInfo parent{};
+        int8_t average_rssi = 0;
+        int8_t last_rssi = 0;
+        if (otThreadGetParentInfo(instance, &parent) == OT_ERROR_NONE &&
+            otThreadGetParentAverageRssi(instance, &average_rssi) == OT_ERROR_NONE &&
+            otThreadGetParentLastRssi(instance, &last_rssi) == OT_ERROR_NONE) {
+            std::snprintf(link.data(),
+                          link.size(),
+                          "Thread child: parent 0x%04x RSSI %d dBm (last %d), LQI %u",
+                          parent.mRloc16,
+                          average_rssi,
+                          last_rssi,
+                          parent.mLinkQualityIn);
+        }
+    } else if (role == OT_DEVICE_ROLE_ROUTER || role == OT_DEVICE_ROLE_LEADER) {
+        otNeighborInfoIterator iterator = OT_NEIGHBOR_INFO_ITERATOR_INIT;
+        otNeighborInfo neighbor{};
+        unsigned int routers = 0;
+        std::optional<otNeighborInfo> best;
+        while (otThreadGetNextNeighborInfo(instance, &iterator, &neighbor) == OT_ERROR_NONE) {
+            if (neighbor.mIsChild) { continue; }
+            ++routers;
+            if (!best || neighbor.mAverageRssi > best->mAverageRssi) { best = neighbor; }
+        }
+        if (best) {
+            std::snprintf(link.data(),
+                          link.size(),
+                          "Thread %s: %u router links, best 0x%04x RSSI %d dBm (last %d), LQI %u",
+                          otThreadDeviceRoleToString(role),
+                          routers,
+                          best->mRloc16,
+                          best->mAverageRssi,
+                          best->mLastRssi,
+                          best->mLinkQualityIn);
+        } else {
+            std::snprintf(link.data(),
+                          link.size(),
+                          "Thread %s: no router links",
+                          otThreadDeviceRoleToString(role));
+        }
+    }
+    if (link.front() == '\0') {
+        std::snprintf(link.data(), link.size(), "Thread %s", otThreadDeviceRoleToString(role));
+    }
+    esp_openthread_lock_release();
+    logHeap(link.data());
+}
+#elif CHIP_DEVICE_CONFIG_ENABLE_WIFI
+void logNetworkStatus(void* /*arg*/) {
+    std::array<char, 64> link{};
+    wifi_ap_record_t ap{};
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        std::snprintf(link.data(), link.size(), "Wi-Fi RSSI %d dBm", ap.rssi);
+    } else {
+        std::snprintf(link.data(), link.size(), "Wi-Fi not connected");
+    }
+    logHeap(link.data());
+}
+#endif
+
+void startNetworkStatusLog() {
+    const esp_timer_create_args_t args = {.callback = logNetworkStatus, .name = "network_status"};
+    esp_timer_handle_t timer = nullptr;
+    if (esp_timer_create(&args, &timer) != ESP_OK ||
+        esp_timer_start_periodic(timer, network_status_interval_us) != ESP_OK) {
+        ESP_LOGW(tag, "Failed to start the network status log");
+    }
+}
 } // namespace
 
 esp_err_t
@@ -1335,7 +1460,8 @@ MatterManager::init(const SensorRanges& ranges) {
     }
     ESP_LOGI(tag, "Matter started");
     destroyPlaceholderEndpoints(matter_node);
-    PrintOnboardingCodes(chip::RendezvousInformationFlags(CONFIG_RENDEZVOUS_MODE));
+    logOnboardingCodes();
+    startNetworkStatusLog();
 
     // Console shell is helpful when developing/debugging the application.
     // Set CONFIG_ENABLE_CHIP_SHELL=n in sdkconfig.defaults in production.
